@@ -1777,7 +1777,6 @@ def verify_otp(request):
 
     return render(request, "core/verify_otp.html", {"form": form})
 
-
 def reset_password(request):
 
     if "reset_user_id" not in request.session or "otp_verified" not in request.session:
@@ -1918,7 +1917,7 @@ def register(request):
                 messages.warning(request, "Account created but welcome email could not be delivered.")
 
             messages.success(request, "🎉 Your account has been created successfully!")
-            return redirect('cart')  
+            return redirect('home')  
 
         else:
             return render(request, 'core/register.html', {'form': form})
