@@ -247,40 +247,48 @@ def add_to_cart(request, product_id):
     weight = (request.POST.get("weight") or request.GET.get("weight") or "").strip()
     if not weight:
         try:
-            weight_options = product.weight_options 
+            weight_options = product.weight_options
             if weight_options:
-                weight = weight_options[0] if isinstance(weight_options, (list, tuple)) else weight_options.split(",")[0]
+                weight = weight_options.split(",")[0]
             else:
                 weight = "1"
-        except Exception:
+        except:
             weight = "1"
 
-    weight = weight.strip().upper()
+    weight = weight.upper().strip()
     quantity = int(request.POST.get("quantity", 1))
 
     if "buy_now" in request.POST:
         if not request.user.is_authenticated:
             return redirect("login")
+
         request.session["buy_now_item"] = {
             "product_id": product.id,
+            "title": product.title,
             "weight": weight,
             "quantity": quantity,
         }
         return redirect("payment_page")
     weight_multiplier = Decimal(str(product.convert_weight_value(weight)))
     unit_price = product.discounted_price if product.is_offer_active else product.base_price
-    final_price = unit_price * weight_multiplier * Decimal(quantity)
 
     if request.user.is_authenticated:
-        item, created = CartItem.objects.get_or_create(user=request.user, product=product, weight=weight)
+        item, created = CartItem.objects.get_or_create(
+            user=request.user,
+            product=product,
+            weight=weight
+        )
+
         if created:
             item.quantity = quantity
         else:
             item.quantity += quantity
+
         item.save()
         return redirect("cart")
 
     cart = request.session.get("cart", [])
+
     for entry in cart:
         if entry["product_id"] == product.id and entry["weight"] == weight:
             entry["quantity"] += quantity
@@ -289,17 +297,19 @@ def add_to_cart(request, product_id):
             return redirect("cart")
 
     cart.append({
-    "product_id": product.id,
-    "weight": weight.upper(),
-    "quantity": quantity,
-    "unit_price": str(unit_price),
-    "weight_multiplier": str(weight_multiplier),
-    "image": product.image.url,
-})
+        "product_id": product.id,
+        "title": product.title,           
+        "weight": weight.upper(),
+        "quantity": quantity,
+        "unit_price": str(unit_price),
+        "weight_multiplier": str(weight_multiplier),
+        "image": product.image.url if product.image else "",
+    })
 
     request.session["cart"] = cart
     request.session.modified = True
     return redirect("cart")
+
 
 @login_required
 def remove_from_cart(request, item_id):
