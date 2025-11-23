@@ -1695,7 +1695,6 @@ User = get_user_model()
 import random
 
 def forgot_password(request):
-
     list(messages.get_messages(request))
 
     if request.method == "POST":
@@ -1704,82 +1703,28 @@ def forgot_password(request):
         if form.is_valid():
             email = form.cleaned_data["email"].strip().lower()
 
-            # Check user exists
             try:
                 user = CustomUser.objects.get(email__iexact=email)
             except CustomUser.DoesNotExist:
                 messages.error(request, "❌ This email is not registered.")
                 return redirect("forgot_password")
 
-            # Clear previous OTP
-            PasswordResetOTP.objects.filter(user=user).delete()
-
-            otp = str(random.randint(100000, 999999))
-
-            PasswordResetOTP.objects.create(user=user, otp=otp)
-
-            try:
-                send_mail(
-                    subject="Your VetriMart Password Reset OTP",
-                    message=f"Your OTP for password reset is: {otp}",
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[email],
-                    fail_silently=False,
-                )
-            except Exception as e:
-                print("EMAIL ERROR:", e)
-                messages.error(request, f"Email error: {e}")
-                return redirect("forgot_password")
-
-
             request.session["reset_user_id"] = user.id
-            messages.success(request, "OTP sent to your email.")
-            return redirect("verify_otp")
+            messages.success(request, "✔ Email found. Please set your new password.")
+            return redirect("reset_password")
 
     else:
         form = ForgotPasswordForm()
 
     return render(request, "core/forgot_password.html", {"form": form})
 
-def verify_otp(request):
 
-    if "reset_user_id" not in request.session:
-        return redirect("forgot_password")
-
-    try:
-        user = CustomUser.objects.get(id=request.session["reset_user_id"])
-    except CustomUser.DoesNotExist:
-        messages.error(request, "User not found.")
-        return redirect("forgot_password")
-
-    if request.method == "POST":
-        form = OTPVerifyForm(request.POST)
-        if form.is_valid():
-            otp = form.cleaned_data["otp"].strip()
-
-            otp_obj = PasswordResetOTP.objects.filter(
-                user=user, otp=otp
-            ).order_by("-created_at").first()
-
-            if not otp_obj:
-                messages.error(request, "Invalid OTP.")
-                return redirect("verify_otp")
-
-            if not otp_obj.is_valid():
-                messages.error(request, "OTP expired.")
-                return redirect("forgot_password")
-
-            request.session["otp_verified"] = True
-            return redirect("reset_password")
-
-    else:
-        form = OTPVerifyForm()
-
-    return render(request, "core/verify_otp.html", {"form": form})
+from django.contrib.auth.hashers import make_password
 
 def reset_password(request):
 
-    if "reset_user_id" not in request.session or "otp_verified" not in request.session:
+    # User must have passed email step
+    if "reset_user_id" not in request.session:
         return redirect("forgot_password")
 
     try:
@@ -1794,13 +1739,12 @@ def reset_password(request):
         if form.is_valid():
             new_password = form.cleaned_data["new_password"]
 
-            user.set_password(new_password)
+            user.password = make_password(new_password)
             user.save()
 
             request.session.pop("reset_user_id", None)
-            request.session.pop("otp_verified", None)
 
-            messages.success(request, "Password reset successfully!")
+            messages.success(request, "✔ Password reset successfully! Please login.")
             return redirect("login")
 
     else:

@@ -3,7 +3,6 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/login.css' %}" />
-
 <style>
 .password-wrapper {
     position: relative;
@@ -33,7 +32,6 @@
     <form method="POST" novalidate>
       {% csrf_token %}
 
-      <!-- EMAIL FIELD -->
       <div class="mb-3">
         <label for="id_username">Email</label>
         {{ form.username }}
@@ -42,7 +40,6 @@
         {% endfor %}
       </div>
 
-      <!-- PASSWORD FIELD -->
       <div class="mb-3">
         <label for="id_password">Password</label>
         <div class="password-wrapper">
