@@ -94,22 +94,32 @@ class Product(models.Model):
         ("dozen", "Dozen"),
     ]
 
-    category = models.ForeignKey(Category, related_name='products', on_delete=models.CASCADE)
+    category = models.ForeignKey(
+        "Category",
+        related_name="products",
+        on_delete=models.CASCADE
+    )
+
     vendor = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
-        null=True, blank=True, related_name='vendor_products'
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="vendor_products"
     )
 
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True, null=True)
     base_price = models.DecimalField(max_digits=8, decimal_places=2)
-    image = models.ImageField(upload_to='products/')
+    image = models.ImageField(upload_to="products/")
 
     unit = models.CharField(max_length=20, choices=UNIT_CHOICES, default="kg")
     weight_options = models.CharField(max_length=200, default="500G,1KG,2KG")
 
     wishlist_users = models.ManyToManyField(
-        settings.AUTH_USER_MODEL, related_name='wishlist', blank=True
+        settings.AUTH_USER_MODEL,
+        related_name="wishlist",
+        blank=True
     )
 
     is_offer = models.BooleanField(default=False)
@@ -121,20 +131,13 @@ class Product(models.Model):
         return self.title
 
     def get_absolute_url(self):
-        return reverse('product_detail', args=[self.category.id, self.id])
+        return reverse("product_detail", args=[self.category.id, self.id])
 
     def get_weight_options_list(self):
-        return [w.strip() for w in self.weight_options.split(",")] if self.weight_options else []
+        if not self.weight_options:
+            return []
+        return [w.strip() for w in self.weight_options.split(",")]
 
-    def is_in_wishlist_for_user(self, user):
-        return user.is_authenticated and self.wishlist_users.filter(id=user.id).exists()
-
-    @property
-    def discounted_price(self):
-        if self.is_offer_active:
-            discount = (self.base_price * Decimal(self.discount_percent)) / Decimal("100")
-            return (self.base_price - discount).quantize(Decimal("0.01"))
-        return self.base_price
 
     @property
     def is_offer_active(self):
@@ -144,7 +147,16 @@ class Product(models.Model):
         now = timezone.now()
         if self.offer_start and self.offer_end:
             return self.offer_start <= now <= self.offer_end
+
         return True
+
+    @property
+    def discounted_price(self):
+        if self.is_offer_active and self.discount_percent > 0:
+            discount = (self.base_price * Decimal(self.discount_percent)) / Decimal("100")
+            return (self.base_price - discount).quantize(Decimal("0.01"))
+
+        return self.base_price
 
     @property
     def savings_amount(self):
@@ -152,15 +164,35 @@ class Product(models.Model):
             return (self.base_price - self.discounted_price).quantize(Decimal("0.01"))
         return Decimal("0.00")
 
+
     def convert_weight_value(self, weight_str):
+        """
+        Converts weight strings into base units:
+
+        - litre → returns litres (250ML → 0.25)
+        - kg → returns kg (500G → 0.5)
+        - g → returns kg
+        - ml → returns ml (pack-based)
+        - piece → number of pieces
+        - dozen → pieces * 12
+        - pack → treat as count (1 pack)
+
+        Always returns Decimal.
+        """
         if not weight_str:
             return Decimal("1")
 
         w = weight_str.upper().strip().replace(" ", "")
-
-        w = (w.replace("GRAMS", "G").replace("GRAM", "G").replace("GMS", "G")
-               .replace("LITRE", "L").replace("LTR", "L").replace("LITER", "L")
-               .replace("MILLILITRE", "ML").replace("MILLILITER", "ML"))
+        w = (
+            w.replace("GRAMS", "G")
+             .replace("GRAM", "G")
+             .replace("GMS", "G")
+             .replace("LITRE", "L")
+             .replace("LTR", "L")
+             .replace("LITER", "L")
+             .replace("MILLILITRE", "ML")
+             .replace("MILLILITER", "ML")
+        )
 
         if self.unit == "kg":
             if w.endswith("KG"):
@@ -182,19 +214,21 @@ class Product(models.Model):
 
         if self.unit == "ml":
             if w.endswith("ML"):
-                return Decimal(w.replace("ML", "")) / Decimal("1000")
+                return Decimal(w.replace("ML", ""))
             if w.endswith("L"):
-                return Decimal(w.replace("L", ""))
+                return Decimal(w.replace("L", "")) * Decimal("1000")
 
         if self.unit == "piece":
-            digits = ''.join(filter(str.isdigit, w))
+            digits = "".join(filter(str.isdigit, w))
             return Decimal(digits) if digits else Decimal("1")
 
+
         if self.unit == "pack":
-            return Decimal("1")
+            digits = "".join(filter(str.isdigit, w))
+            return Decimal(digits) if digits else Decimal("1")
 
         if self.unit == "dozen":
-            digits = ''.join(filter(str.isdigit, w))
+            digits = "".join(filter(str.isdigit, w))
             return Decimal(digits) * Decimal("12") if digits else Decimal("12")
 
         return Decimal("1")
@@ -414,7 +448,6 @@ class Order(models.Model):
                 return 0 if num == 12 else num
             return 12 if num == 12 else num + 12
 
-        # Use ORDER DATE instead of today
         order_dt = timezone.localtime(self.created_at)
         order_date = order_dt.date()
 
@@ -422,13 +455,12 @@ class Order(models.Model):
             start_raw, _ = self.delivery_slot.split(" - ")
             start_hour = convert_to_24h(start_raw)
         except:
-            start_hour = order_dt.hour  # fallback
+            start_hour = order_dt.hour 
 
         slot_start = timezone.make_aware(
             datetime(order_date.year, order_date.month, order_date.day, start_hour, 0)
         )
 
-        # If slot time is earlier than the order time → move to next day
         if slot_start < order_dt:
             slot_start += timedelta(days=1)
 

@@ -110,8 +110,6 @@ EMAIL_HOST_USER = 'sumisunitha06@gmail.com'
 EMAIL_HOST_PASSWORD = 'sqjz nfgh tvxh nsbi' 
 DEFAULT_FROM_EMAIL = 'sumisunitha06@gmail.com'
 
-
-
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 

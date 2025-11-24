@@ -133,12 +133,20 @@
 <h5 class="fw-bold mb-3 fs-4">Payment & Summary</h5>
 
 <div class="summary-card p-3 rounded-3 shadow-sm bg-light mb-4">
+
   <ul class="list-group border-0 mb-3">
 
     {% for item in cart_items %}
     <li class="list-group-item border-0 bg-transparent d-flex justify-content-between">
-      {{ item.product.title }} × {{ item.quantity }}
+
+      <div>
+        {{ item.product.title }} 
+        <small class="text-muted">({{ item.weight }})</small>
+        × {{ item.quantity }}
+      </div>
+
       <span>₹{{ item.final_price|floatformat:2 }}</span>
+
     </li>
     {% endfor %}
 
@@ -160,7 +168,9 @@
     <span>Total:</span>
     <span class="text-warning">₹{{ total|floatformat:2 }}</span>
   </div>
+
 </div>
+
 
 
 <div id="formErrorBox"></div>

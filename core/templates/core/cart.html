@@ -16,18 +16,18 @@
         <div class="col-lg-8">
 
             {% for item in cart_items %}
-
-            <div class="cart-item {% if is_guest %}guest-item{% endif %}"
-                 {% if is_guest %}
-                     data-pid="{{ item.product_id }}"
-                     data-weight="{{ item.weight }}"
-                 {% else %}
-                     data-id="{{ item.id }}"
-                 {% endif %}
+            <div class="cart-item 
+                {% if not user.is_authenticated %}guest-item{% endif %}"
+                {% if not user.is_authenticated %}
+                    data-pid="{{ item.product_id }}"
+                    data-weight="{{ item.weight }}"
+                {% else %}
+                    data-id="{{ item.id }}"
+                {% endif %}
             >
 
                 <div class="cart-img-box">
-                    {% if is_guest %}
+                    {% if not user.is_authenticated %}
                         <img src="{{ item.image }}" alt="{{ item.title }}">
                     {% else %}
                         <img src="{{ item.product.image.url }}" alt="{{ item.product.title }}">
@@ -38,14 +38,14 @@
 
                     <div class="cart-item-header">
                         <h5 class="cart-item-title">
-                            {% if is_guest %}
+                            {% if not user.is_authenticated %}
                                 {{ item.title }}
                             {% else %}
                                 {{ item.product.title }}
                             {% endif %}
                         </h5>
 
-                        {% if is_guest %}
+                        {% if not user.is_authenticated %}
                             <a href="{% url 'remove_from_cart_guest' forloop.counter0 %}" class="remove-icon">
                                 <i class="bi bi-trash"></i>
                             </a>
@@ -56,47 +56,38 @@
                         {% endif %}
                     </div>
 
+                    <!-- WEIGHT -->
                     <p class="cart-weight">
                         {{ item.weight }}
-                        <span class="unit">(
-                            {% if is_guest %}
-                                {{ item.converted_weight }} {{ item.unit }}
-                            {% else %}
-                                {{ item.converted_weight_display }} {{ item.product.unit }}
-                            {% endif %}
-                        )</span>
+                        <span class="unit">
+                            (
+                                {% if not user.is_authenticated %}
+                                    {{ item.converted_weight }} {{ item.unit }}
+                                {% else %}
+                                    {{ item.converted_weight_display }} {{ item.product.unit }}
+                                {% endif %}
+                            )
+                        </span>
                     </p>
 
+                    <!-- PRICE DISPLAY -->
                     <div class="cart-price-line">
-                        {% if not is_guest and item.product.is_offer_active %}
-                            <span class="old-price">₹{{ item.product.base_price|floatformat:2 }}</span>
-                            <span class="new-price">₹{{ item.product.discounted_price|floatformat:2 }}</span>
-                        {% else %}
-                            <span class="new-price">₹
-                                {% if is_guest %}{{ item.unit_price }}
-                                {% else %}{{ item.product.base_price|floatformat:2 }}
-                                {% endif %}
-                            </span>
-                        {% endif %}
-                        <span class="per-unit">/
-                            {% if is_guest %}{{ item.unit }}{% else %}{{ item.product.unit }}{% endif %}
-                        </span>
+                        <span class="new-price">₹{{ item.final_price|floatformat:2 }}</span>
+                        <span class="per-unit">for {{ item.weight }}</span>
                     </div>
 
-                    <input type="hidden" class="unit-price"
-                           value="{% if is_guest %}{{ item.unit_price }}
-                           {% else %}
-                               {% if item.product.is_offer_active %}
-                                   {{ item.product.discounted_price }}
-                               {% else %}
-                                   {{ item.product.base_price }}
-                               {% endif %}
-                           {% endif %}">
-
-                    <input type="hidden" class="weight-mult"
-                           value="{% if is_guest %}{{ item.converted_weight }}
-                           {% else %}{{ item.converted_weight_display }}{% endif %}">
-
+                    <!-- === HIDDEN CALC FIELDS (CORRECTED) === -->
+                  {% if item.is_per_unit %}
+    <input type="hidden" class="unit-price" value="{{ item.single_unit_price }}">
+    <input type="hidden" class="weight-mult" value="{{ item.converted_weight_display }}">
+    <input type="hidden" class="default-weight" value="{{ item.default_weight }}">
+    <input type="hidden" class="is-per-unit" value="1">
+{% else %}
+    <input type="hidden" class="unit-price" value="{{ item.single_unit_price }}">
+    <input type="hidden" class="weight-mult" value="1">
+    <input type="hidden" class="default-weight" value="1">
+    <input type="hidden" class="is-per-unit" value="0">
+{% endif %}
 
                     <div class="cart-bottom-row">
 
@@ -107,13 +98,13 @@
                                    class="qty-input"
                                    min="1"
                                    value="{{ item.quantity }}"
-                                   data-id="{% if is_guest %}{{ forloop.counter0 }}{% else %}{{ item.id }}{% endif %}">
-                            
+                                   data-id="{% if not user.is_authenticated %}{{ forloop.counter0 }}{% else %}{{ item.id }}{% endif %}">
+
                             <button class="qty-btn plus" type="button">+</button>
                         </div>
 
                         <div class="item-total">
-                            ₹<span id="price-{% if is_guest %}{{ forloop.counter0 }}{% else %}{{ item.id }}{% endif %}">
+                            ₹<span id="price-{% if not user.is_authenticated %}{{ forloop.counter0 }}{% else %}{{ item.id }}{% endif %}">
                                 {{ item.final_price|floatformat:2 }}
                             </span>
                         </div>
@@ -121,11 +112,13 @@
                     </div>
 
                 </div>
-            </div>
 
+            </div>
             {% endfor %}
+
         </div>
 
+        <!-- RIGHT SIDE SUMMARY -->
         <div class="col-lg-4">
             <div class="order-summary-card shadow-sm">
 
@@ -153,6 +146,7 @@
                 {% else %}
                     <a href="{% url 'login' %}?next={% url 'payment_page' %}" class="checkout-btn">Proceed to Buy</a>
                 {% endif %}
+
             </div>
         </div>
 

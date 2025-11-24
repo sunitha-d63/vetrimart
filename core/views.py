@@ -101,7 +101,7 @@ def category_products(request, category_id):
         'products': products,
         'sort': sort,
         'show_offers': show_offers,
-        'guest_wishlist_ids': guest_wishlist_ids,  # ⭐ IMPORTANT
+        'guest_wishlist_ids': guest_wishlist_ids,  
     })
 
 
@@ -109,109 +109,234 @@ def top_offers(request):
     offer_categories = Category.objects.filter(is_offer_category=True)
     return render(request, 'core/top_offers.html', {'offer_categories': offer_categories})
 
+from decimal import Decimal
+from django.shortcuts import render, get_object_or_404, redirect
+from .models import Product, CartItem
+
+
+from decimal import Decimal
+
+def resolve_weights_for_pricing(product, selected_weight):
+    """
+    Pricing Rules:
+    -------------------------------------
+    Per-unit pricing ONLY for:
+        - kg
+        - litre
+    Everything else (ml, g, piece, pack, dozen)
+    is treated as fixed-pack pricing.
+    """
+    # Convert selected pack to a numeric weight representation
+    selected_val = product.convert_weight_value(selected_weight) if selected_weight else Decimal("1")
+
+    # Default weight = first option
+    weight_options = product.get_weight_options_list()
+    if weight_options:
+        first_opt = weight_options[0]
+        default_val = product.convert_weight_value(first_opt)
+    else:
+        default_val = Decimal("1")
+
+    # ONLY KG & LITRE are priced per unit
+    per_unit_types = ("kg", "litre")
+    is_per_unit = (product.unit or "").lower() in per_unit_types
+
+    return is_per_unit, Decimal(selected_val), None, Decimal(default_val)
+
 
 def product_detail(request, category_id, product_id):
     product = get_object_or_404(Product, id=product_id, category_id=category_id)
-    weight_options = product.get_weight_options_list()
 
+    # Weight list
+    weight_options = product.get_weight_options_list()
     selected_weight = weight_options[0] if weight_options else None
 
+    default_weight_val = product.convert_weight_value(weight_options[0])
+
+
+    weights_with_values = [
+        {
+            "label": w,
+            "value": str(product.convert_weight_value(w))
+        }
+        for w in weight_options
+    ]
+
+    # Pricing behavior
+    is_per_unit, selected_val, _, default_val = resolve_weights_for_pricing(
+        product, selected_weight
+    )
+
+    # PER-UNIT PRICING (kg, litre)
+    if is_per_unit:
+        per_unit_label = product.unit
+        per_unit_price_display = product.discounted_price if product.is_offer_active else product.base_price
+
+    # FIXED PACK PRICING (piece, ml, g)
+    else:
+        per_unit_label = selected_weight
+        per_unit_price_display = (
+            product.discounted_price if product.is_offer_active else product.base_price
+        )
+
+    # -----------------------------------------
+    # POST: ADD TO CART, BUY NOW
+    # -----------------------------------------
     if request.method == "POST":
-        selected_weight = request.POST.get("weight")
+
+        action = request.POST.get("action_type")
+
+        selected_weight = request.POST.get("weight") or selected_weight
         quantity = int(request.POST.get("quantity", 1))
 
-        weight_multiplier = product.convert_weight_value(selected_weight)
-
         unit_price = (
-            product.discounted_price
-            if product.is_offer_active
-            else product.base_price
+            product.discounted_price if product.is_offer_active else product.base_price
         )
 
-        final_price = float(unit_price) * float(weight_multiplier)
-        
-        if not request.user.is_authenticated:
-
-            cart = request.session.get("cart", [])
-
-            cart.append({
-                    "product_id": product.id,
-                    "weight": selected_weight.upper(),
-                    "quantity": quantity,
-                    "unit_price": str(unit_price),
-                    "weight_multiplier": str(weight_multiplier),
-                    "image": product.image.url if product.image else "",
-                    })
-
-
-            request.session["cart"] = cart
-            request.session.modified = True
-
-            if "buy_now" in request.POST:
+        # BUY NOW
+        if action == "buy_now":
+            if not request.user.is_authenticated:
                 return redirect("login")
 
-            return redirect("cart")
-        unit_price = (
-            product.discounted_price
-            if product.is_offer_active
-            else product.base_price
-        )
-        final_price = float(unit_price) * weight_multiplier
+            request.session["buy_now_item"] = {
+                "product_id": product.id,
+                "title": product.title,
+                "weight": selected_weight,
+                "quantity": quantity,
+                "unit_price": str(unit_price),
+                "image": product.image.url if product.image else "",
+            }
+            request.session.modified = True
+            return redirect("payment_page")
 
-        cart_item = CartItem.objects.filter(
+        # GUEST ADD TO CART
+        if not request.user.is_authenticated:
+            cart = request.session.get("cart", [])
+            cart.append({
+                "product_id": product.id,
+                "title": product.title,
+                "weight": selected_weight.upper(),
+                "quantity": quantity,
+                "unit_price": str(unit_price),
+                "image": product.image.url if product.image else "",
+            })
+            request.session["cart"] = cart
+            request.session.modified = True
+            return redirect("cart")
+
+        # LOGGED-IN ADD TO CART
+        item, created = CartItem.objects.get_or_create(
             user=request.user,
             product=product,
             weight=selected_weight
-        ).first()
+        )
 
-        if cart_item:
-            cart_item.quantity += quantity
-            cart_item.save()
+        if created:
+            item.quantity = quantity
         else:
-            CartItem.objects.create(
-                user=request.user,
-                product=product,
-                weight=selected_weight,
-                quantity=quantity
-            )
+            item.quantity += quantity
 
-        if "buy_now" in request.POST:
-            return redirect("payment_page")
-
+        item.save()
         return redirect("cart")
 
-    related_products = Product.objects.filter(category=product.category).exclude(id=product.id)[:4]
-
-    if request.user.is_authenticated:
-        in_wishlist = product.wishlist_users.filter(id=request.user.id).exists()
-    else:
-        in_wishlist = False
-
+    # Related
+    related_products = (
+        Product.objects.filter(category=product.category)
+        .exclude(id=product.id)[:4]
+    )
 
     return render(request, "core/product_detail.html", {
         "product": product,
         "selected_weight": selected_weight,
         "weight_options": weight_options,
+        "weights_with_values": weights_with_values,
+        "per_unit_label": per_unit_label,
+        "per_unit_price_display": per_unit_price_display,
+        "default_weight_val": default_weight_val,
         "related_products": related_products,
-        "in_wishlist": in_wishlist,
     })
 
+from decimal import Decimal, InvalidOperation
+from django.shortcuts import render
+from .models import Product, CartItem
+
+def to_decimal(value, fallback=Decimal("0")):
+    """
+    Safely convert int/float/str/Decimal to Decimal.
+    Returns fallback (Decimal) if conversion fails.
+    """
+    try:
+        if isinstance(value, Decimal):
+            return value
+        if value is None or value == "":
+            return fallback
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return fallback
+
+
+from decimal import Decimal
 
 def cart_view(request):
+    subtotal = Decimal("0.00")
 
     if request.user.is_authenticated:
         cart_items = CartItem.objects.filter(user=request.user)
-        subtotal = Decimal("0.00")
-        for item in cart_items:
-            weight_multiplier = Decimal(str(item.product.convert_weight_value(item.weight)))
 
-            item.converted_weight_display = weight_multiplier
-            unit_price = item.product.discounted_price if item.product.is_offer_active else item.product.base_price
-            item.final_price = (unit_price * weight_multiplier * Decimal(item.quantity))
-            subtotal += item.final_price
+        if not cart_items.exists():
+            return render(request, "core/cart.html", {
+                "cart_items": [],
+                "subtotal": 0,
+                "tax": 0,
+                "total": 0,
+                "is_guest": False,
+            })
 
-        tax = subtotal * Decimal("0.05")
-        total = subtotal + tax
+        for it in cart_items:
+            product = it.product
+
+            weight_opts = product.get_weight_options_list()
+            selected_weight = it.weight or (weight_opts[0] if weight_opts else "")
+
+            quantity = Decimal(it.quantity)
+
+            selected_val = product.convert_weight_value(selected_weight)
+            default_val = (
+                product.convert_weight_value(weight_opts[0])
+                if weight_opts else Decimal("1")
+            )
+
+            unit_price = (
+                product.discounted_price if product.is_offer_active else product.base_price
+            )
+            unit_price = Decimal(unit_price)
+
+            is_per_unit = product.unit.lower() in ["kg", "litre"]
+
+            if is_per_unit:
+                final_price = unit_price * selected_val * quantity
+            else:
+                if default_val == 0:
+                    default_val = Decimal("1")
+                final_price = unit_price * (selected_val / default_val) * quantity
+
+            final_price = final_price.quantize(Decimal("0.01"))
+
+            if quantity > 0:
+                single_unit_price = (final_price / quantity).quantize(Decimal("0.01"))
+            else:
+                single_unit_price = final_price
+
+            it.single_unit_price = single_unit_price
+            it.final_price = final_price
+            it.converted_weight_display = selected_val
+            it.default_weight = default_val
+
+            subtotal += final_price
+
+        tax = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"))
+        total = (subtotal + tax).quantize(Decimal("0.01"))
+
         return render(request, "core/cart.html", {
             "cart_items": cart_items,
             "subtotal": subtotal,
@@ -221,20 +346,49 @@ def cart_view(request):
         })
 
     cart = request.session.get("cart", [])
-    subtotal = Decimal("0.00")
-    for item in cart:
-        product = Product.objects.get(id=item["product_id"])
-        weight_multiplier = Decimal(str(product.convert_weight_value(item["weight"])))
-        item["converted_weight"] = weight_multiplier
-        unit_price = Decimal(str(item["unit_price"]))
-        quantity = Decimal(str(item["quantity"]))
-        item["final_price"] = unit_price * weight_multiplier * quantity
-        subtotal += item["final_price"]
+    guest_cart = []
 
-    tax = subtotal * Decimal("0.05")
-    total = subtotal + tax
+    for entry in cart:
+        try:
+            product = Product.objects.get(id=entry["product_id"])
+        except Product.DoesNotExist:
+            continue
+
+        weight_opts = product.get_weight_options_list()
+        selected_weight = entry.get("weight") or (weight_opts[0] if weight_opts else "")
+
+        quantity = Decimal(entry.get("quantity", 1))
+        unit_price = Decimal(entry.get("unit_price", product.base_price))
+
+        selected_val = product.convert_weight_value(selected_weight)
+        default_val = (
+            product.convert_weight_value(weight_opts[0])
+            if weight_opts else Decimal("1")
+        )
+
+        is_per_unit = product.unit.lower() in ["kg", "litre"]
+
+        if is_per_unit:
+            final_price = unit_price * selected_val * quantity
+        else:
+            if default_val == 0:
+                default_val = Decimal("1")
+            final_price = unit_price * (selected_val / default_val) * quantity
+
+        final_price = final_price.quantize(Decimal("0.01"))
+
+        entry["final_price"] = str(final_price)
+        entry["converted_weight_display"] = str(selected_val)
+        entry["default_weight"] = str(default_val)
+
+        guest_cart.append(entry)
+        subtotal += final_price
+
+    tax = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"))
+    total = (subtotal + tax).quantize(Decimal("0.01"))
+
     return render(request, "core/cart.html", {
-        "cart_items": cart,
+        "cart_items": guest_cart,
         "subtotal": subtotal,
         "tax": tax,
         "total": total,
@@ -244,33 +398,33 @@ def cart_view(request):
 def add_to_cart(request, product_id):
     product = get_object_or_404(Product, id=product_id)
 
-    weight = (request.POST.get("weight") or request.GET.get("weight") or "").strip()
-    if not weight:
-        try:
-            weight_options = product.weight_options
-            if weight_options:
-                weight = weight_options.split(",")[0]
-            else:
-                weight = "1"
-        except:
-            weight = "1"
+    action_type = request.POST.get("action_type", "").strip()
 
-    weight = weight.upper().strip()
+    weight = (request.POST.get("weight") or request.GET.get("weight") or "").strip()
     quantity = int(request.POST.get("quantity", 1))
 
-    if "buy_now" in request.POST:
-        if not request.user.is_authenticated:
-            return redirect("login")
+    weight_options = product.get_weight_options_list()
+    if not weight:
+        weight = weight_options[0] if weight_options else "1"
+    weight = weight.upper().strip()
 
+    unit_price = product.discounted_price if product.is_offer_active else product.base_price
+    converted_weight_val = product.convert_weight_value(weight)
+
+    if weight_options:
+        default_weight_val = product.convert_weight_value(weight_options[0])
+    else:
+        default_weight_val = Decimal("1")
+
+    is_per_unit = product.unit.lower() in ("kg", "litre")
+
+    if action_type == "buy_now":
         request.session["buy_now_item"] = {
             "product_id": product.id,
-            "title": product.title,
-            "weight": weight,
             "quantity": quantity,
+            "weight": weight,
         }
         return redirect("payment_page")
-    weight_multiplier = Decimal(str(product.convert_weight_value(weight)))
-    unit_price = product.discounted_price if product.is_offer_active else product.base_price
 
     if request.user.is_authenticated:
         item, created = CartItem.objects.get_or_create(
@@ -291,25 +445,35 @@ def add_to_cart(request, product_id):
 
     for entry in cart:
         if entry["product_id"] == product.id and entry["weight"] == weight:
-            entry["quantity"] += quantity
+            entry["quantity"] = entry.get("quantity", 0) + quantity
+
+            entry["unit_price"] = str(unit_price)
+            entry["converted_weight"] = str(converted_weight_val)
+            entry["default_weight"] = str(default_weight_val)
+            entry["is_per_unit"] = is_per_unit
+            entry["unit"] = product.unit
+
             request.session["cart"] = cart
             request.session.modified = True
             return redirect("cart")
 
     cart.append({
         "product_id": product.id,
-        "title": product.title,           
-        "weight": weight.upper(),
+        "title": product.title,
+        "weight": weight,
         "quantity": quantity,
         "unit_price": str(unit_price),
-        "weight_multiplier": str(weight_multiplier),
         "image": product.image.url if product.image else "",
+
+        "converted_weight": str(converted_weight_val),
+        "default_weight": str(default_weight_val),
+        "unit": product.unit,
+        "is_per_unit": is_per_unit,
     })
 
     request.session["cart"] = cart
     request.session.modified = True
     return redirect("cart")
-
 
 @login_required
 def remove_from_cart(request, item_id):
@@ -327,17 +491,53 @@ def remove_from_cart_guest(request, index):
 @login_required
 @require_POST
 def update_cart_item(request):
-    item_id = request.POST.get('item_id')
-    quantity = int(request.POST.get('quantity', 1))
+    """
+    Updates quantity and returns correct recalculated price
+    for kg/litre (per-unit) and ml/g/pack/piece (fixed-price).
+    """
+    item_id = request.POST.get("item_id")
+    quantity = Decimal(request.POST.get("quantity", 1))
 
     try:
         cart_item = CartItem.objects.get(id=item_id, user=request.user)
-        cart_item.quantity = quantity
+        product = cart_item.product
+
+        # safe weight
+        selected_weight = cart_item.weight
+        if not selected_weight:
+            weight_options = product.get_weight_options_list()
+            selected_weight = weight_options[0] if weight_options else "1"
+
+        # price source
+        unit_price = product.discounted_price if product.is_offer_active else product.base_price
+
+        # determine per-unit vs fixed
+        is_per_unit, selected_val, _, default_val = resolve_weights_for_pricing(
+            product,
+            selected_weight
+        )
+
+        selected_val = Decimal(selected_val)
+        default_val = Decimal(default_val)
+        unit_price = Decimal(unit_price)
+
+        # calculate correct price
+        if is_per_unit:
+            final_price = unit_price * selected_val * quantity
+        else:
+            final_price = unit_price * (selected_val / default_val) * quantity
+
+        # update item quantity
+        cart_item.quantity = int(quantity)
         cart_item.save()
-        total_price = cart_item.quantity * cart_item.product.base_price
-        return JsonResponse({'success': True, 'total_price': f'{total_price:.2f}'})
+
+        return JsonResponse({
+            "success": True,
+            "final_price": f"{final_price:.2f}"
+        })
+
     except CartItem.DoesNotExist:
-        return JsonResponse({'success': False, 'error': 'Item not found'})
+        return JsonResponse({"success": False, "error": "Item not found"})
 
 
 def toggle_wishlist(request, product_id):
@@ -591,7 +791,6 @@ def admin_dashboard(request):
         .order_by("-order_count")[:5]
     )
 
-    # ⭐ REPLACED LOW-STOCK WITH BEST-SELLING ITEMS
     top_selling_items = (
         Product.objects
         .annotate(sales=Sum("order_items__quantity"))
@@ -646,7 +845,6 @@ def admin_dashboard(request):
         "recent_orders": recent_orders,
         "top_products": top_products,
 
-        # ⭐ NEW FIELD
         "top_selling_items": top_selling_items,
 
         "delivery_status_counts": delivery_status_counts,
@@ -681,7 +879,6 @@ def vendor_dashboard(request):
     products = Product.objects.filter(vendor=request.user).order_by('-id')
     form = VendorProductForm(request.POST or None, request.FILES or None)
 
-    # Add Product
     if request.method == "POST":
         if form.is_valid():
             product = form.save(commit=False)
@@ -692,18 +889,12 @@ def vendor_dashboard(request):
         else:
             messages.error(request, "Please correct the errors below.")
 
-    # -------------------------
-    # 📌 VENDOR STATISTICS
-    # -------------------------
-
-    # Total Revenue
     total_revenue = (
         OrderItem.objects.filter(product__vendor=request.user)
         .aggregate(total=Sum(F("price") * F("quantity")))["total"]
         or 0
     )
 
-    # Total Orders (unique)
     total_orders = (
         OrderItem.objects.filter(product__vendor=request.user)
         .values('order')
@@ -711,10 +902,8 @@ def vendor_dashboard(request):
         .count()
     )
 
-    # Total Products
     total_products = products.count()
 
-    # Sales breakdown per product
     sales_data = (
         OrderItem.objects.filter(product__vendor=request.user)
         .values('product__title')
@@ -981,40 +1170,84 @@ def save_model(self, request, obj, form, change):
     if obj.is_offer and not obj.offer_end:
         obj.offer_end = timezone.now() + timedelta(days=7)
     super().save_model(request, obj, form, change)
-
-from decimal import Decimal
-from decimal import Decimal
-from django.views.decorators.csrf import csrf_exempt
-
 def calculate_final_price(product, weight, quantity):
-    weight_value = Decimal(str(product.convert_weight_value(weight)))
-    unit_price = Decimal(str(
-        product.discounted_price if product.is_offer_active else product.base_price
-    ))
-    qty = Decimal(str(quantity))
-    return (unit_price * weight_value * qty).quantize(Decimal("0.01"))
 
+    selected_val = Decimal(product.convert_weight_value(weight))
+
+    weight_options = product.get_weight_options_list()
+    default_val = Decimal(product.convert_weight_value(weight_options[0])) if weight_options else Decimal("1")
+
+    unit_price = Decimal(
+        product.discounted_price if product.is_offer_active else product.base_price
+    )
+
+    qty = Decimal(quantity)
+
+    if product.unit.lower() in ("kg", "litre"):
+        final = unit_price * selected_val * qty
+    else:
+        final = unit_price * (selected_val / default_val) * qty
+
+    return final.quantize(Decimal("0.01"))
 
 @csrf_exempt
 def payment_page(request):
+
+    if not request.user.is_authenticated:
+        return redirect(f"/login/?next=/payment/")
+
     user = request.user
     buy_now_item = request.session.get("buy_now_item")
+
+    def compute_price(product, weight, quantity):
+
+        weight_opts = product.get_weight_options_list()
+        selected_weight = weight
+
+        qty = Decimal(quantity)
+
+        selected_val = product.convert_weight_value(selected_weight)
+
+        default_val = (
+            product.convert_weight_value(weight_opts[0])
+            if weight_opts else Decimal("1")
+        )
+
+        unit_price = (
+            product.discounted_price if product.is_offer_active else product.base_price
+        )
+        unit_price = Decimal(unit_price)
+
+        per_unit_types = ["kg", "litre"]
+        is_per_unit = product.unit.lower() in per_unit_types
+
+        if is_per_unit:
+            final_price = unit_price * selected_val * qty
+        else:
+            if default_val == 0:
+                default_val = Decimal("1")
+            final_price = unit_price * (selected_val / default_val) * qty
+
+        return final_price.quantize(Decimal("0.01"))
 
     if buy_now_item:
         product = Product.objects.get(id=buy_now_item["product_id"])
         quantity = buy_now_item["quantity"]
         weight = buy_now_item.get("weight", product.unit)
 
-        class TempItem: pass
+        class TempItem:
+            pass
+
         tmp = TempItem()
         tmp.product = product
         tmp.quantity = quantity
         tmp.weight = weight
-        tmp.final_price = calculate_final_price(product, weight, quantity)
+        tmp.final_price = compute_price(product, weight, quantity)
 
         cart_items = [tmp]
 
     else:
+
         cart_items = CartItem.objects.filter(user=user)
 
         if not cart_items.exists():
@@ -1022,7 +1255,7 @@ def payment_page(request):
             return redirect("cart")
 
         for item in cart_items:
-            item.final_price = calculate_final_price(
+            item.final_price = compute_price(
                 item.product, item.weight, item.quantity
             )
 
@@ -1076,6 +1309,7 @@ def payment_page(request):
         "tax": tax,
         "total": total,
     })
+
 
 @csrf_exempt
 def verify_payment(request):
@@ -1740,7 +1974,6 @@ from django.contrib.auth.hashers import make_password
 
 def reset_password(request):
 
-    # User must have passed email step
     if "reset_user_id" not in request.session:
         return redirect("forgot_password")
 

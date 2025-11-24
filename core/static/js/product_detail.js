@@ -1,115 +1,116 @@
 document.addEventListener("DOMContentLoaded", () => {
-    const weightSelector = document.getElementById("weightSelector");
-    const dropdown = document.getElementById("weightDropdown");
-    const weightHidden = document.getElementById("selectedWeight");
-    const weightText = document.getElementById("selectedWeightText");
+  const weightSelector = document.getElementById("weightSelector");
+  const weightDropdown = document.getElementById("weightDropdown");
+  const selectedWeightText = document.getElementById("selectedWeightText");
+  const selectedWeightSelect = document.getElementById("selectedWeight");
+  const qtyInput = document.getElementById("quantityInput");
+  const livePrice = document.getElementById("livePrice");
+  const mrpText = document.getElementById("mrpText");
+  const savingsText = document.getElementById("savingsText");
 
-    const qtyInput = document.getElementById("quantityInput");
-    const livePrice = document.getElementById("livePrice");
-    const strikeMRP = document.querySelector(".text-decoration-line-through");
-    const savingsText = document.querySelector(".text-success");
+  const basePrice = parseFloat(document.getElementById("basePrice").value);
+  const discountPrice = parseFloat(document.getElementById("discountPrice").value);
+  const productUnit = document.getElementById("productUnit").value.toLowerCase();
+  const isOfferActive = document.getElementById("isOfferActive").value === "True";
+  const defaultWeight = parseFloat(document.getElementById("defaultWeightVal").value);
 
-    const basePrice = parseFloat(document.getElementById("basePrice").value);
-    const discountPrice = parseFloat(document.getElementById("discountPrice").value);
-    const unit = document.getElementById("productUnit").value.toLowerCase();
-    const offerActive = document.getElementById("isOfferActive").value === "True";
-    const pricePerUnit = offerActive ? discountPrice : basePrice;
+  const perUnitTypes = ["kg", "litre"];
+  const isPerUnit = perUnitTypes.includes(productUnit);
 
-    // set default hidden select value to the displayed text
-    if (weightText && weightHidden) {
-        const defaultWeight = weightText.innerText.trim();
-        if (defaultWeight) {
-            weightHidden.value = defaultWeight;
-            // ensure the corresponding <option> is selected (optional)
-            Array.from(weightHidden.options).forEach(opt => {
-                opt.selected = opt.value === defaultWeight;
-            });
-        }
+  function parseNumber(v) {
+    const n = parseFloat(v);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function computeFinal(unit_price, selectedVal, qty) {
+    if (isPerUnit) {
+      return unit_price * selectedVal * qty;
+    } else {
+      return unit_price * (selectedVal / defaultWeight) * qty;
+    }
+  }
+
+  function updatePriceUI() {
+    const selectedLabel = selectedWeightText.innerText.trim();
+    const li = weightDropdown.querySelector(`li[data-value="${selectedLabel}"]`);
+    if (!li) return;
+
+    const selectedVal = parseNumber(li.getAttribute("data-val-num"));
+    const qty = Math.max(1, parseInt(qtyInput.value) || 1);
+    const unit_price = isOfferActive ? discountPrice : basePrice;
+
+    const final = computeFinal(unit_price, selectedVal, qty);
+    livePrice.innerText = "₹" + final.toFixed(2);
+
+ const liveInfo = document.getElementById("livePriceInfo");
+const liveUnit = document.getElementById("livePriceUnit");
+
+if (liveInfo && liveUnit) {
+
+    // Show: 2 × 250ML
+    liveInfo.innerText = `${qty} × ${selectedLabel}`;
+
+    const perUnitPrice = final / qty;
+
+    let perText = "";
+
+    if (isPerUnit) {
+        perText = `₹${perUnitPrice.toFixed(2)} per ${selectedVal}${productUnit.toUpperCase()}`;
+    } else {
+        perText = `₹${perUnitPrice.toFixed(2)} per ${selectedLabel}`;
     }
 
-    function convertWeight(value) {
-        const w = (value || "").toString().toUpperCase().trim();
-        if (!w) return 1;
+    liveUnit.innerText = perText;
+}
+    if (isOfferActive) {
+        const savePerUnit = basePrice - discountPrice;
+        const saveTotal = computeFinal(savePerUnit, selectedVal, qty);
+        const percent = Math.round((savePerUnit / basePrice) * 100);
 
-        // KG / G
-        if (unit === "kg" || unit === "g") {
-            if (w.endsWith("KG")) return parseFloat(w.replace("KG", ""));
-            if (w.endsWith("G")) return parseFloat(w.replace("G", "")) / 1000;
-        }
-
-        // LITRE / ML
-        if (unit === "litre" || unit === "ml") {
-            if (w.endsWith("ML")) return parseFloat(w.replace("ML", "")) / 1000;
-            if (w.endsWith("L")) return parseFloat(w.replace("L", ""));
-        }
-
-        // piece / pack
-        if (unit === "piece" || unit === "pack") {
-            const num = parseFloat(w.replace(/[^0-9]/g, ""));
-            return num > 0 ? num : 1;
-        }
-
-        if (unit === "dozen") {
-            const num = parseFloat(w.replace(/[^0-9]/g, ""));
-            return num > 0 ? num * 12 : 12;
-        }
-
-        return 1;
+        savingsText.innerText = `You save ₹${saveTotal.toFixed(2)} (${percent}% OFF)`;
+        savingsText.classList.remove("d-none");
+    } else {
+        savingsText.classList.add("d-none");
     }
+}
 
-    function updatePriceUI() {
-        const selectedWeight = weightText.innerText.trim();
-        const qty = parseInt(qtyInput.value) || 1;
-        const multiplier = convertWeight(selectedWeight);
-        const finalPrice = pricePerUnit * multiplier * qty;
-        if (livePrice) livePrice.textContent = "₹" + finalPrice.toFixed(2);
-        if (strikeMRP) {
-            const mrpTotal = basePrice * multiplier * qty;
-            strikeMRP.textContent = "MRP: ₹" + mrpTotal.toFixed(2);
-        }
-        if (offerActive && savingsText) {
-            const savingsPerUnit = basePrice - discountPrice;
-            const totalSavings = savingsPerUnit * multiplier * qty;
-            const percent = basePrice ? ((savingsPerUnit / basePrice) * 100).toFixed(0) : 0;
-            savingsText.textContent = `You save ₹${totalSavings.toFixed(2)} (${percent}% OFF)`;
-        }
-    }
-    weightSelector.addEventListener("click", (e) => {
-        e.stopPropagation();
-        dropdown.classList.toggle("d-none");
+  weightSelector.addEventListener("click", (e) => {
+    e.stopPropagation();
+    weightDropdown.classList.toggle("d-none");
+  });
+
+  document.addEventListener("click", () => weightDropdown.classList.add("d-none"));
+
+  weightDropdown.querySelectorAll("li").forEach(li => {
+    li.addEventListener("click", () => {
+      const label = li.getAttribute("data-value");
+      selectedWeightText.innerText = label;
+      selectedWeightSelect.value = label;
+      weightDropdown.classList.add("d-none");
+      updatePriceUI();
     });
+  });
 
-    dropdown.querySelectorAll("li").forEach((li) => {
-        li.addEventListener("click", (e) => {
-            e.stopPropagation();
-            const value = li.getAttribute("data-value");
-            weightText.textContent = value;
-            if (weightHidden) {
-                weightHidden.value = value;
-                Array.from(weightHidden.options).forEach(opt => opt.selected = opt.value === value);
-            }
-            dropdown.classList.add("d-none");
-            updatePriceUI();
-        });
+  document.querySelectorAll(".qty-btn.plus").forEach(btn => {
+    btn.addEventListener("click", () => {
+      qtyInput.value = Math.max(1, (parseInt(qtyInput.value) || 1) + 1);
+      updatePriceUI();
     });
+  });
 
-    document.addEventListener("click", () => dropdown.classList.add("d-none"));
-
-    qtyInput.addEventListener("input", () => {
-        if (qtyInput.value < 1) qtyInput.value = 1;
+  document.querySelectorAll(".qty-btn.minus").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (parseInt(qtyInput.value) > 1) {
+        qtyInput.value = parseInt(qtyInput.value) - 1;
         updatePriceUI();
+      }
     });
+  });
 
-    document.querySelector(".qty-btn.plus").addEventListener("click", () => {
-        qtyInput.value = parseInt(qtyInput.value) + 1;
-        updatePriceUI();
-    });
-
-    document.querySelector(".qty-btn.minus").addEventListener("click", () => {
-        if (parseInt(qtyInput.value) > 1) {
-            qtyInput.value = parseInt(qtyInput.value) - 1;
-            updatePriceUI();
-        }
-    });
+  qtyInput.addEventListener("input", () => {
+    if (parseInt(qtyInput.value) < 1) qtyInput.value = 1;
     updatePriceUI();
+  });
+
+  updatePriceUI();
 });

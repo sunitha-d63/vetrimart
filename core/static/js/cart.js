@@ -4,110 +4,115 @@ document.addEventListener("DOMContentLoaded", () => {
     const minusBtns = document.querySelectorAll(".qty-btn.minus");
     const qtyInputs = document.querySelectorAll(".qty-input");
 
-    // CSRF helper for Django
-    function getCookie(name) {
-        let cookieValue = null;
-        if (document.cookie && document.cookie !== "") {
-            const cookies = document.cookie.split(";");
-            for (let cookie of cookies) {
-                cookie = cookie.trim();
-                if (cookie.startsWith(name + "=")) {
-                    cookieValue = decodeURIComponent(cookie.split("=")[1]);
-                    break;
-                }
-            }
-        }
-        return cookieValue;
+    plusBtns.forEach(btn => btn.addEventListener("click", () => changeQty(btn, "plus")));
+    minusBtns.forEach(btn => btn.addEventListener("click", () => changeQty(btn, "minus")));
+    qtyInputs.forEach(inp => inp.addEventListener("input", () => changeQty(inp, "input")));
+
+   function changeQty(target, action) {
+
+    const wrapper = target.closest(".cart-item");
+    const qtyInput = wrapper.querySelector(".qty-input");
+
+    let qty = parseInt(qtyInput.value);
+
+    if (action === "plus") qty++;
+    if (action === "minus" && qty > 1) qty--;
+    if (action === "input") {
+        if (qty < 1 || isNaN(qty)) qty = 1;
     }
 
-    plusBtns.forEach(btn => {
-        btn.addEventListener("click", () => {
-            const input = btn.closest(".qty-control").querySelector(".qty-input");
-            input.value = parseInt(input.value) + 1;
-            updateRow(input);
-        });
-    });
+    qtyInput.value = qty;
 
-    minusBtns.forEach(btn => {
-        btn.addEventListener("click", () => {
-            const input = btn.closest(".qty-control").querySelector(".qty-input");
-            let val = parseInt(input.value);
-            if (val > 1) {
-                input.value = val - 1;
-                updateRow(input);
-            }
-        });
-    });
+    const unitPrice = parseFloat(wrapper.querySelector(".unit-price").value);
+    const weightMult = parseFloat(wrapper.querySelector(".weight-mult").value);
+    const isPerUnit = parseInt(wrapper.querySelector(".is-per-unit").value);
 
-    qtyInputs.forEach(input => {
-        input.addEventListener("input", () => {
-            if (input.value < 1) input.value = 1;
-            updateRow(input);
-        });
-    });
+    let itemTotal = unitPrice * weightMult * qty;
+    itemTotal = itemTotal.toFixed(2);
 
-    function updateRow(inputEl) {
-        const card = inputEl.closest(".cart-item");
+    // UPDATE RIGHT SIDE TOTAL
+    wrapper.querySelector(".item-total span").innerText = itemTotal;
 
-        const unitPrice = parseFloat(card.querySelector(".unit-price").value);
-        const weightMult = parseFloat(card.querySelector(".weight-mult").value);
+    // UPDATE LEFT PRICE (per 1 quantity)
+    const leftPrice = wrapper.querySelector(".new-price");
+    leftPrice.innerText = "₹" + (itemTotal / qty).toFixed(2);
 
-        const qty = parseInt(inputEl.value);
-        const id = inputEl.dataset.id;
+    // -------------------------------
+    // ✅ UPDATE "for WEIGHT × QTY"
+    // -------------------------------
+    const perUnitLabel = wrapper.querySelector(".cart-price-line .per-unit");
 
-        const priceEl = document.getElementById(`price-${id}`);
-        const finalPrice = unitPrice * weightMult * qty;
+    if (perUnitLabel) {
 
-        priceEl.innerText = finalPrice.toFixed(2);
+        // Extract ONLY the first weight part (example: 250ML, 1KG, 500G)
+        const weightElement = wrapper.querySelector(".cart-weight");
+        let weightOnly = weightElement.childNodes[0].textContent.trim();
 
-        // -------------------------
-        // GUEST USER (session cart)
-        // -------------------------
-        if (card.classList.contains("guest-item")) {
-
-            const pid = card.dataset.pid;
-            const weight = card.dataset.weight;
-
-            fetch("/update-guest-cart/", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "X-CSRFToken": getCookie("csrftoken")
-                },
-                body: `product_id=${pid}&weight=${weight}&qty=${qty}`
-            })
-            .then(res => res.json())
-            .then(() => {
-                updateTotals();
-            });
-
-            return; // Exit here
-        }
-
-        // -------------------------
-        // LOGGED IN USER (database)
-        // -------------------------
-        fetch(`/update-cart-qty/${id}/${qty}/`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    updateTotals();
-                }
-            });
+        perUnitLabel.innerText = `for ${weightOnly} × ${qty}`;
     }
 
-    function updateTotals() {
+    updateSummary();
+
+    if (wrapper.dataset.id) {
+        updateServer(wrapper.dataset.id, qty);
+    } else {
+        updateGuest(wrapper, qty);
+    }
+}
+
+document.querySelectorAll(".cart-item").forEach(wrapper => {
+    const qty = parseInt(wrapper.querySelector(".qty-input").value);
+    const perUnitLabel = wrapper.querySelector(".cart-price-line .per-unit");
+
+    if (perUnitLabel) {
+        const weightText = wrapper.querySelector(".cart-weight").childNodes[0].textContent.trim();
+        perUnitLabel.innerText = `for ${weightText} × ${qty}`;
+    }
+});
+
+    function updateSummary() {
         let subtotal = 0;
 
-        document.querySelectorAll(".item-total span").forEach(el => {
-            subtotal += parseFloat(el.innerText);
+        document.querySelectorAll(".item-total span").forEach(sp => {
+            subtotal += parseFloat(sp.innerText);
         });
 
         const tax = subtotal * 0.05;
         const total = subtotal + tax;
 
-        document.getElementById("subtotal").innerText = subtotal.toFixed(2);
-        document.getElementById("tax").innerText = tax.toFixed(2);
-        document.getElementById("total").innerText = total.toFixed(2);
+        document.querySelector("#subtotal").innerText = subtotal.toFixed(2);
+        document.querySelector("#tax").innerText = tax.toFixed(2);
+        document.querySelector("#total").innerText = total.toFixed(2);
+    }
+
+    function updateServer(itemId, qty) {
+        fetch("/cart/update/", {
+
+            method: "POST",
+            headers: {
+                "X-CSRFToken": getCSRF(),
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: `item_id=${itemId}&quantity=${qty}`
+        });
+    }
+
+    function updateGuest(wrapper, qty) {
+        const pid = wrapper.dataset.pid;
+        const weight = wrapper.dataset.weight;
+
+        fetch("/update-guest-cart-qty/", {
+            method: "POST",
+            headers: {
+                "X-CSRFToken": getCSRF(),
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: `product_id=${pid}&weight=${weight}&qty=${qty}`
+        });
+    }
+
+    function getCSRF() {
+        const cookie = document.cookie.split("; ").find(row => row.startsWith("csrftoken="));
+        return cookie ? cookie.split("=")[1] : "";
     }
 });
