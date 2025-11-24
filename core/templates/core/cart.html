@@ -70,24 +70,34 @@
                         </span>
                     </p>
 
-                    <!-- PRICE DISPLAY -->
                     <div class="cart-price-line">
                         <span class="new-price">₹{{ item.final_price|floatformat:2 }}</span>
                         <span class="per-unit">for {{ item.weight }}</span>
                     </div>
 
-                    <!-- === HIDDEN CALC FIELDS (CORRECTED) === -->
-                  {% if item.is_per_unit %}
-    <input type="hidden" class="unit-price" value="{{ item.single_unit_price }}">
-    <input type="hidden" class="weight-mult" value="{{ item.converted_weight_display }}">
+{% if not user.is_authenticated %}
+    <!-- Correct Guest Hidden Inputs -->
+    <input type="hidden" class="unit-price" value="{{ item.unit_price }}">
+    <input type="hidden" class="weight-mult" value="{{ item.converted_weight }}">
     <input type="hidden" class="default-weight" value="{{ item.default_weight }}">
-    <input type="hidden" class="is-per-unit" value="1">
+    <input type="hidden" class="is-per-unit" value="{{ item.is_per_unit|yesno:'1,0' }}">
 {% else %}
-    <input type="hidden" class="unit-price" value="{{ item.single_unit_price }}">
-    <input type="hidden" class="weight-mult" value="1">
-    <input type="hidden" class="default-weight" value="1">
-    <input type="hidden" class="is-per-unit" value="0">
+
+    {% if item.is_per_unit %}
+        <input type="hidden" class="unit-price" value="{{ item.single_unit_price }}">
+        <input type="hidden" class="weight-mult" value="{{ item.converted_weight_display }}">
+        <input type="hidden" class="default-weight" value="{{ item.default_weight }}">
+        <input type="hidden" class="is-per-unit" value="1">
+    {% else %}
+        <input type="hidden" class="unit-price" value="{{ item.single_unit_price }}">
+        <input type="hidden" class="weight-mult" value="1">
+        <input type="hidden" class="default-weight" value="1">
+        <input type="hidden" class="is-per-unit" value="0">
+    {% endif %}
 {% endif %}
+
+
+
 
                     <div class="cart-bottom-row">
 

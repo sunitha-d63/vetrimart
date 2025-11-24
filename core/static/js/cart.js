@@ -23,9 +23,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     qtyInput.value = qty;
 
-    const unitPrice = parseFloat(wrapper.querySelector(".unit-price").value);
-    const weightMult = parseFloat(wrapper.querySelector(".weight-mult").value);
-    const isPerUnit = parseInt(wrapper.querySelector(".is-per-unit").value);
+  const unitPrice = parseFloat(wrapper.querySelector(".unit-price")?.value) || 0;
+const weightMult = parseFloat(wrapper.querySelector(".weight-mult")?.value) || 1;
+const isPerUnit = parseInt(wrapper.querySelector(".is-per-unit")?.value) || 0;
+
 
     let itemTotal = unitPrice * weightMult * qty;
     itemTotal = itemTotal.toFixed(2);
@@ -86,7 +87,7 @@ document.querySelectorAll(".cart-item").forEach(wrapper => {
     }
 
     function updateServer(itemId, qty) {
-        fetch("/cart/update/", {
+        fetch(`/update-cart-qty/${itemId}/${qty}/`, {
 
             method: "POST",
             headers: {

@@ -2142,7 +2142,7 @@ def login_view(request):
             if user is not None:
 
                 login(request, user, backend="core.backends.EmailBackend")
-
+                
 
                 guest_cart = request.session.get("cart", [])
 
@@ -2248,7 +2248,6 @@ def update_guest_cart_qty(request):
         if str(item["product_id"]) == str(product_id) and item["weight"] == weight:
             item["quantity"] = qty
 
-            # FIX: support both weight_multiplier and converted_weight
             weight_val = Decimal(str(
                 item.get("weight_multiplier") or 
                 item.get("converted_weight") or 
@@ -2285,18 +2284,15 @@ def forgot_password(request):
                 messages.error(request, "❌ This email is not registered.")
                 return redirect("forgot_password")
 
-            # Generate OTP
             otp = random.randint(100000, 999999)
 
-            # Save for later verification
             request.session["reset_user_id"] = user.id
             request.session["otp"] = otp
 
-            # Send OTP to email
             send_mail(
                 subject="Your Password Reset OTP",
                 message=f"Your OTP for password reset is: {otp}",
-                from_email="sumisunitha06@gmail.com",  # MUST match EMAIL_HOST_USER
+                from_email="sumisunitha06@gmail.com",  
                 recipient_list=[email],
                 fail_silently=False
             )
@@ -2318,7 +2314,6 @@ def verify_otp(request):
         entered_otp = request.POST.get("otp")
 
         if str(request.session.get("otp")) == str(entered_otp):
-            # OTP correct → remove OTP but keep user id
             request.session.pop("otp", None)
             return redirect("reset_password")
         else:
@@ -2346,7 +2341,6 @@ def reset_password(request):
             user.password = make_password(new_password)
             user.save()
 
-            # Clear the session
             request.session.pop("reset_user_id", None)
 
             messages.success(request, "✔ Password reset successfully! Please login.")
