@@ -1945,62 +1945,61 @@ User = get_user_model()
 
 import random
 
-def forgot_password(request):
-    list(messages.get_messages(request))
+# def forgot_password(request):
+#     list(messages.get_messages(request))
 
-    if request.method == "POST":
-        form = ForgotPasswordForm(request.POST)
+#     if request.method == "POST":
+#         form = ForgotPasswordForm(request.POST)
 
-        if form.is_valid():
-            email = form.cleaned_data["email"].strip().lower()
+#         if form.is_valid():
+#             email = form.cleaned_data["email"].strip().lower()
 
-            try:
-                user = CustomUser.objects.get(email__iexact=email)
-            except CustomUser.DoesNotExist:
-                messages.error(request, "❌ This email is not registered.")
-                return redirect("forgot_password")
+#             try:
+#                 user = CustomUser.objects.get(email__iexact=email)
+#             except CustomUser.DoesNotExist:
+#                 messages.error(request, "❌ This email is not registered.")
+#                 return redirect("forgot_password")
 
-            request.session["reset_user_id"] = user.id
-            messages.success(request, "✔ Email found. Please set your new password.")
-            return redirect("reset_password")
+#             request.session["reset_user_id"] = user.id
+#             messages.success(request, "✔ Email found. Please set your new password.")
+#             return redirect("reset_password")
 
-    else:
-        form = ForgotPasswordForm()
+#     else:
+#         form = ForgotPasswordForm()
 
-    return render(request, "core/forgot_password.html", {"form": form})
+#     return render(request, "core/forgot_password.html", {"form": form})
 
+# from django.contrib.auth.hashers import make_password
 
-from django.contrib.auth.hashers import make_password
+# def reset_password(request):
 
-def reset_password(request):
+#     if "reset_user_id" not in request.session:
+#         return redirect("forgot_password")
 
-    if "reset_user_id" not in request.session:
-        return redirect("forgot_password")
+#     try:
+#         user = CustomUser.objects.get(id=request.session["reset_user_id"])
+#     except CustomUser.DoesNotExist:
+#         messages.error(request, "User not found.")
+#         return redirect("forgot_password")
 
-    try:
-        user = CustomUser.objects.get(id=request.session["reset_user_id"])
-    except CustomUser.DoesNotExist:
-        messages.error(request, "User not found.")
-        return redirect("forgot_password")
+#     if request.method == "POST":
+#         form = ResetPasswordForm(request.POST)
 
-    if request.method == "POST":
-        form = ResetPasswordForm(request.POST)
+#         if form.is_valid():
+#             new_password = form.cleaned_data["new_password"]
 
-        if form.is_valid():
-            new_password = form.cleaned_data["new_password"]
+#             user.password = make_password(new_password)
+#             user.save()
 
-            user.password = make_password(new_password)
-            user.save()
+#             request.session.pop("reset_user_id", None)
 
-            request.session.pop("reset_user_id", None)
+#             messages.success(request, "✔ Password reset successfully! Please login.")
+#             return redirect("login")
 
-            messages.success(request, "✔ Password reset successfully! Please login.")
-            return redirect("login")
+#     else:
+#         form = ResetPasswordForm()
 
-    else:
-        form = ResetPasswordForm()
-
-    return render(request, "core/reset_password.html", {"form": form})
+#     return render(request, "core/reset_password.html", {"form": form})
 
 @login_required(login_url='login')
 def checkout(request):
@@ -2265,3 +2264,95 @@ def update_guest_cart_qty(request):
 
     return JsonResponse({"success": True})
 
+
+
+import random
+from django.core.mail import send_mail
+from django.contrib.auth.hashers import make_password
+
+def forgot_password(request):
+    list(messages.get_messages(request))
+
+    if request.method == "POST":
+        form = ForgotPasswordForm(request.POST)
+
+        if form.is_valid():
+            email = form.cleaned_data["email"].strip().lower()
+
+            try:
+                user = CustomUser.objects.get(email__iexact=email)
+            except CustomUser.DoesNotExist:
+                messages.error(request, "❌ This email is not registered.")
+                return redirect("forgot_password")
+
+            # Generate OTP
+            otp = random.randint(100000, 999999)
+
+            # Save for later verification
+            request.session["reset_user_id"] = user.id
+            request.session["otp"] = otp
+
+            # Send OTP to email
+            send_mail(
+                subject="Your Password Reset OTP",
+                message=f"Your OTP for password reset is: {otp}",
+                from_email="sumisunitha06@gmail.com",  # MUST match EMAIL_HOST_USER
+                recipient_list=[email],
+                fail_silently=False
+            )
+
+            messages.success(request, "✔ OTP sent to your email.")
+            return redirect("verify_otp")
+
+    else:
+        form = ForgotPasswordForm()
+
+    return render(request, "core/forgot_password.html", {"form": form})
+
+def verify_otp(request):
+
+    if "reset_user_id" not in request.session:
+        return redirect("forgot_password")
+
+    if request.method == "POST":
+        entered_otp = request.POST.get("otp")
+
+        if str(request.session.get("otp")) == str(entered_otp):
+            # OTP correct → remove OTP but keep user id
+            request.session.pop("otp", None)
+            return redirect("reset_password")
+        else:
+            messages.error(request, "❌ Incorrect OTP. Try again.")
+
+    return render(request, "core/verify_otp.html")
+
+def reset_password(request):
+
+    if "reset_user_id" not in request.session or "otp" in request.session:
+        return redirect("forgot_password")
+
+    try:
+        user = CustomUser.objects.get(id=request.session["reset_user_id"])
+    except CustomUser.DoesNotExist:
+        messages.error(request, "User not found.")
+        return redirect("forgot_password")
+
+    if request.method == "POST":
+        form = ResetPasswordForm(request.POST)
+
+        if form.is_valid():
+            new_password = form.cleaned_data["new_password"]
+
+            user.password = make_password(new_password)
+            user.save()
+
+            # Clear the session
+            request.session.pop("reset_user_id", None)
+
+            messages.success(request, "✔ Password reset successfully! Please login.")
+            return redirect("login")
+
+    else:
+        form = ResetPasswordForm()
+
+    return render(request, "core/reset_password.html", {"form": form})
