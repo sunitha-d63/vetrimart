@@ -109,156 +109,101 @@ def top_offers(request):
     offer_categories = Category.objects.filter(is_offer_category=True)
     return render(request, 'core/top_offers.html', {'offer_categories': offer_categories})
 
+
 from decimal import Decimal
-from django.shortcuts import render, get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, render, redirect
 from .models import Product, CartItem
 
-
-from decimal import Decimal
-
 def resolve_weights_for_pricing(product, selected_weight):
-    """
-    Pricing Rules:
-    -------------------------------------
-    Per-unit pricing ONLY for:
-        - kg
-        - litre
-    Everything else (ml, g, piece, pack, dozen)
-    is treated as fixed-pack pricing.
-    """
-    # Convert selected pack to a numeric weight representation
-    selected_val = product.convert_weight_value(selected_weight) if selected_weight else Decimal("1")
-
-    # Default weight = first option
-    weight_options = product.get_weight_options_list()
-    if weight_options:
-        first_opt = weight_options[0]
-        default_val = product.convert_weight_value(first_opt)
-    else:
-        default_val = Decimal("1")
-
-    # ONLY KG & LITRE are priced per unit
+    # Determine per-unit (kg, litre) vs pack
     per_unit_types = ("kg", "litre")
     is_per_unit = (product.unit or "").lower() in per_unit_types
+
+    selected_val = product.convert_weight_value(selected_weight) if selected_weight else Decimal("1")
+
+    weight_options = product.get_weight_options_list()
+    if weight_options:
+        default_val = product.convert_weight_value(weight_options[0])
+    else:
+        default_val = Decimal("1")
 
     return is_per_unit, Decimal(selected_val), None, Decimal(default_val)
 
 
+from decimal import Decimal
+from django.shortcuts import render, get_object_or_404
+from .models import Product
+
 def product_detail(request, category_id, product_id):
     product = get_object_or_404(Product, id=product_id, category_id=category_id)
 
-    # Weight list
     weight_options = product.get_weight_options_list()
     selected_weight = weight_options[0] if weight_options else None
 
-    default_weight_val = product.convert_weight_value(weight_options[0])
+    unit = (product.unit or "").lower()
+    adjusted_values = []
+
+    for w in weight_options:
+
+        w_clean = w.upper().replace(" ", "") 
+
+        if unit == "ml":
+            num = ''.join(filter(str.isdigit, w_clean))
+            val = (Decimal(num) / Decimal("1000")) if num else Decimal("1")
+
+        elif unit == "g":
+            num = ''.join(filter(str.isdigit, w_clean))
+            val = (Decimal(num) / Decimal("1000")) if num else Decimal("1")
 
 
-    weights_with_values = [
-        {
+        elif unit in ["kg", "litre"]:
+            val = product.convert_weight_value(w)
+
+        elif unit in ["pack", "piece"]:
+            digits = ''.join(filter(str.isdigit, w_clean))
+            val = Decimal(digits) if digits else Decimal("1")
+
+        else:
+            val = Decimal("1")
+
+        adjusted_values.append({
             "label": w,
-            "value": str(product.convert_weight_value(w))
-        }
-        for w in weight_options
-    ]
+            "value": str(val),
+        })
 
-    # Pricing behavior
-    is_per_unit, selected_val, _, default_val = resolve_weights_for_pricing(
-        product, selected_weight
+    default_weight_val = Decimal(adjusted_values[0]["value"]) if adjusted_values else Decimal("1")
+
+    per_unit_price_display = (
+        product.discounted_price if product.is_offer_active else product.base_price
     )
 
-    # PER-UNIT PRICING (kg, litre)
-    if is_per_unit:
-        per_unit_label = product.unit
-        per_unit_price_display = product.discounted_price if product.is_offer_active else product.base_price
-
-    # FIXED PACK PRICING (piece, ml, g)
-    else:
-        per_unit_label = selected_weight
-        per_unit_price_display = (
-            product.discounted_price if product.is_offer_active else product.base_price
-        )
-
-    # -----------------------------------------
-    # POST: ADD TO CART, BUY NOW
-    # -----------------------------------------
     if request.method == "POST":
 
-        action = request.POST.get("action_type")
+        from .views import add_to_cart
+        return add_to_cart(request, product_id)
 
-        selected_weight = request.POST.get("weight") or selected_weight
-        quantity = int(request.POST.get("quantity", 1))
-
-        unit_price = (
-            product.discounted_price if product.is_offer_active else product.base_price
-        )
-
-        # BUY NOW
-        if action == "buy_now":
-            if not request.user.is_authenticated:
-                return redirect("login")
-
-            request.session["buy_now_item"] = {
-                "product_id": product.id,
-                "title": product.title,
-                "weight": selected_weight,
-                "quantity": quantity,
-                "unit_price": str(unit_price),
-                "image": product.image.url if product.image else "",
-            }
-            request.session.modified = True
-            return redirect("payment_page")
-
-        # GUEST ADD TO CART
-        if not request.user.is_authenticated:
-            cart = request.session.get("cart", [])
-            cart.append({
-                "product_id": product.id,
-                "title": product.title,
-                "weight": selected_weight.upper(),
-                "quantity": quantity,
-                "unit_price": str(unit_price),
-                "image": product.image.url if product.image else "",
-            })
-            request.session["cart"] = cart
-            request.session.modified = True
-            return redirect("cart")
-
-        # LOGGED-IN ADD TO CART
-        item, created = CartItem.objects.get_or_create(
-            user=request.user,
-            product=product,
-            weight=selected_weight
-        )
-
-        if created:
-            item.quantity = quantity
-        else:
-            item.quantity += quantity
-
-        item.save()
-        return redirect("cart")
-
-    # Related
     related_products = (
         Product.objects.filter(category=product.category)
         .exclude(id=product.id)[:4]
     )
 
+
     return render(request, "core/product_detail.html", {
         "product": product,
-        "selected_weight": selected_weight,
+
         "weight_options": weight_options,
-        "weights_with_values": weights_with_values,
-        "per_unit_label": per_unit_label,
+        "weights_with_values": adjusted_values,
+
+        "selected_weight": selected_weight,
+        "default_weight_val": str(default_weight_val),
+
         "per_unit_price_display": per_unit_price_display,
-        "default_weight_val": default_weight_val,
+
         "related_products": related_products,
     })
 
-from decimal import Decimal, InvalidOperation
-from django.shortcuts import render
-from .models import Product, CartItem
+
+
 
 def to_decimal(value, fallback=Decimal("0")):
     """
@@ -276,63 +221,17 @@ def to_decimal(value, fallback=Decimal("0")):
 
 
 from decimal import Decimal
+from django.shortcuts import render
 
 def cart_view(request):
     subtotal = Decimal("0.00")
 
     if request.user.is_authenticated:
         cart_items = CartItem.objects.filter(user=request.user)
-
-        if not cart_items.exists():
-            return render(request, "core/cart.html", {
-                "cart_items": [],
-                "subtotal": 0,
-                "tax": 0,
-                "total": 0,
-                "is_guest": False,
-            })
-
-        for it in cart_items:
-            product = it.product
-
-            weight_opts = product.get_weight_options_list()
-            selected_weight = it.weight or (weight_opts[0] if weight_opts else "")
-
-            quantity = Decimal(it.quantity)
-
-            selected_val = product.convert_weight_value(selected_weight)
-            default_val = (
-                product.convert_weight_value(weight_opts[0])
-                if weight_opts else Decimal("1")
-            )
-
-            unit_price = (
-                product.discounted_price if product.is_offer_active else product.base_price
-            )
-            unit_price = Decimal(unit_price)
-
-            is_per_unit = product.unit.lower() in ["kg", "litre"]
-
-            if is_per_unit:
-                final_price = unit_price * selected_val * quantity
-            else:
-                if default_val == 0:
-                    default_val = Decimal("1")
-                final_price = unit_price * (selected_val / default_val) * quantity
-
-            final_price = final_price.quantize(Decimal("0.01"))
-
-            if quantity > 0:
-                single_unit_price = (final_price / quantity).quantize(Decimal("0.01"))
-            else:
-                single_unit_price = final_price
-
-            it.single_unit_price = single_unit_price
-            it.final_price = final_price
-            it.converted_weight_display = selected_val
-            it.default_weight = default_val
-
-            subtotal += final_price
+        for item in cart_items:
+            # ensure final_price is current
+            item.final_price = (Decimal(item.unit_price) * item.quantity).quantize(Decimal("0.01"))
+            subtotal += item.final_price
 
         tax = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"))
         total = (subtotal + tax).quantize(Decimal("0.01"))
@@ -345,48 +244,20 @@ def cart_view(request):
             "is_guest": False,
         })
 
+    # guest
     cart = request.session.get("cart", [])
     guest_cart = []
-
-    for entry in cart:
-        try:
-            product = Product.objects.get(id=entry["product_id"])
-        except Product.DoesNotExist:
-            continue
-
-        weight_opts = product.get_weight_options_list()
-        selected_weight = entry.get("weight") or (weight_opts[0] if weight_opts else "")
-
-        quantity = Decimal(entry.get("quantity", 1))
-        unit_price = Decimal(entry.get("unit_price", product.base_price))
-
-        selected_val = product.convert_weight_value(selected_weight)
-        default_val = (
-            product.convert_weight_value(weight_opts[0])
-            if weight_opts else Decimal("1")
-        )
-
-        is_per_unit = product.unit.lower() in ["kg", "litre"]
-
-        if is_per_unit:
-            final_price = unit_price * selected_val * quantity
-        else:
-            if default_val == 0:
-                default_val = Decimal("1")
-            final_price = unit_price * (selected_val / default_val) * quantity
-
-        final_price = final_price.quantize(Decimal("0.01"))
-
+    for idx, entry in enumerate(cart):
+        unit_price = Decimal(entry.get("unit_price", "0"))
+        qty = int(entry.get("quantity", 1))
+        final_price = (unit_price * qty).quantize(Decimal("0.01"))
         entry["final_price"] = str(final_price)
-        entry["converted_weight_display"] = str(selected_val)
-        entry["default_weight"] = str(default_val)
-
+        entry["key"] = idx
         guest_cart.append(entry)
         subtotal += final_price
 
     tax = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"))
     total = (subtotal + tax).quantize(Decimal("0.01"))
-
     return render(request, "core/cart.html", {
         "cart_items": guest_cart,
         "subtotal": subtotal,
@@ -395,96 +266,150 @@ def cart_view(request):
         "is_guest": True,
     })
 
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
+from django.http import JsonResponse
 
-from decimal import Decimal, ROUND_HALF_UP
+def update_cart(request, item_id):
+    if request.method != "POST":
+        return JsonResponse({"success": False})
 
-from decimal import Decimal, ROUND_HALF_UP
-from django.shortcuts import get_object_or_404, redirect
-from .models import Product, CartItem
+    action = request.POST.get("action")
+    new_qty = int(request.POST.get("quantity", 1))
+
+    # --------------------------
+    # LOGGED-IN USER CART
+    # --------------------------
+    if request.user.is_authenticated:
+        try:
+            item = CartItem.objects.get(id=item_id, user=request.user)
+        except CartItem.DoesNotExist:
+            return JsonResponse({"success": False})
+
+        # update quantity from JS
+        item.quantity = new_qty
+
+        # ALWAYS recalc final_price
+        item.final_price = (item.unit_price * item.quantity).quantize(Decimal("0.01"))
+        item.save()
+
+    # --------------------------
+    # GUEST USER CART (session)
+    # --------------------------
+    else:
+        cart = request.session.get("cart", [])
+        found = False
+
+        for entry in cart:
+            if entry["product_id"] == item_id or entry.get("key") == item_id:
+                entry["quantity"] = new_qty
+                entry["final_price"] = str(
+                    (Decimal(entry["unit_price"]) * entry["quantity"]).quantize(Decimal("0.01"))
+                )
+                found = True
+                break
+
+        if not found:
+            return JsonResponse({"success": False})
+
+        request.session["cart"] = cart
+        request.session.modified = True
+
+        item = None  # not needed for guest
+
+    # --------------------------
+    # Recalculate full summary
+    # --------------------------
+    if request.user.is_authenticated:
+        cart_items = CartItem.objects.filter(user=request.user)
+        subtotal = sum(i.final_price for i in cart_items)
+    else:
+        subtotal = sum(Decimal(i["final_price"]) for i in cart)
+
+    tax = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"))
+    total = (subtotal + tax).quantize(Decimal("0.01"))
+
+    return JsonResponse({
+        "success": True,
+        "quantity": new_qty,
+        "item_final": float(item.final_price) if request.user.is_authenticated else float(entry["final_price"]),
+        "subtotal": float(subtotal),
+        "tax": float(tax),
+        "total": float(total),
+    })
+
 
 def add_to_cart(request, product_id):
     product = get_object_or_404(Product, id=product_id)
 
+    weight = (request.POST.get("weight") or "").strip()
+    qty = int(request.POST.get("quantity", 1))
     action_type = request.POST.get("action_type", "").strip()
-    weight = (request.POST.get("weight") or request.GET.get("weight") or "").strip()
-    quantity = int(request.POST.get("quantity", 1))
 
-    weight_options = product.get_weight_options_list()
+    weight_value = product.convert_weight_value(weight) if weight else Decimal("1")
 
-    if not weight:
-        weight = weight_options[0]
-    weight = weight.upper().strip()
+    effective_price = product.discounted_price if product.is_offer_active else product.base_price
 
-    # convert weight to decimal (0.25 / 1 etc...)
-    selected_weight_val = Decimal(str(product.convert_weight_value(weight)))
-    default_weight_val = Decimal(str(product.convert_weight_value(weight_options[0])))
+    unit_price = (effective_price * weight_value).quantize(Decimal("0.01"))
 
-    # per unit or piece/litre? (same as login user logic)
-    is_per_unit = product.unit.lower() in ("kg", "g", "litre", "ml")
 
-    base_price = product.discounted_price if product.is_offer_active else product.base_price
-    base_price = Decimal(str(base_price))
-
-    # ⭐ TRUE single-unit price (same used for login user)
-    if is_per_unit:
-        single_unit_price = (base_price * selected_weight_val) / default_weight_val
-    else:
-        single_unit_price = base_price
-
-    single_unit_price = single_unit_price.quantize(Decimal("0.01"))
-
-    # BUY NOW
     if action_type == "buy_now":
+        if not request.user.is_authenticated:
+            messages.info(request, "Please login to continue.")
+            return redirect("login")
+
         request.session["buy_now_item"] = {
             "product_id": product.id,
-            "quantity": quantity,
+            "title": product.title,
             "weight": weight,
+            "quantity": qty,
+            "unit_price": str(unit_price),
+            "final_price": str((unit_price * qty).quantize(Decimal("0.01"))),
+            "image": product.image.url if product.image else "",
         }
+        request.session.modified = True
         return redirect("payment_page")
 
-    # LOGIN USER (unchanged)
     if request.user.is_authenticated:
         item, created = CartItem.objects.get_or_create(
             user=request.user,
             product=product,
-            weight=weight
+            weight=weight,
+            defaults={"quantity": qty, "unit_price": unit_price},
         )
-        if created:
-            item.quantity = quantity
-        else:
-            item.quantity += quantity
 
+        if not created:
+            item.quantity += qty
+            item.unit_price = unit_price
+
+        item.final_price = (Decimal(item.unit_price) * item.quantity).quantize(Decimal("0.01"))
         item.save()
         return redirect("cart")
 
-    # GUEST USER
     cart = request.session.get("cart", [])
     found = False
 
     for entry in cart:
         if entry["product_id"] == product.id and entry["weight"] == weight:
-            entry["quantity"] += quantity
-            entry["unit_price"] = str(single_unit_price)
-            entry["converted_weight"] = str(selected_weight_val)
-            entry["default_weight"] = str(default_weight_val)
-            entry["is_per_unit"] = is_per_unit
-            entry["unit"] = product.unit
+   
+            entry["quantity"] += qty
+            entry["unit_price"] = str(unit_price)
+            entry["final_price"] = str(
+                (Decimal(entry["unit_price"]) * entry["quantity"]).quantize(Decimal("0.01"))
+            )
             found = True
             break
 
     if not found:
+        entry_key = len(cart)  
         cart.append({
+            "key": entry_key,
             "product_id": product.id,
             "title": product.title,
             "weight": weight,
-            "quantity": quantity,
-            "unit_price": str(single_unit_price),  # ⭐ correct single unit price
+            "quantity": qty,
+            "unit_price": str(unit_price),
+            "final_price": str((unit_price * qty).quantize(Decimal("0.01"))),
             "image": product.image.url if product.image else "",
-            "converted_weight": str(selected_weight_val),
-            "default_weight": str(default_weight_val),
-            "unit": product.unit,
-            "is_per_unit": is_per_unit,
         })
 
     request.session["cart"] = cart
@@ -504,58 +429,6 @@ def remove_from_cart_guest(request, index):
         cart.pop(index)
         request.session["cart"] = cart
     return redirect("cart")
-
-@login_required
-@require_POST
-def update_cart_item(request):
-    """
-    Updates quantity and returns correct recalculated price
-    for kg/litre (per-unit) and ml/g/pack/piece (fixed-price).
-    """
-    item_id = request.POST.get("item_id")
-    quantity = Decimal(request.POST.get("quantity", 1))
-
-    try:
-        cart_item = CartItem.objects.get(id=item_id, user=request.user)
-        product = cart_item.product
-
-        # safe weight
-        selected_weight = cart_item.weight
-        if not selected_weight:
-            weight_options = product.get_weight_options_list()
-            selected_weight = weight_options[0] if weight_options else "1"
-
-        # price source
-        unit_price = product.discounted_price if product.is_offer_active else product.base_price
-
-        # determine per-unit vs fixed
-        is_per_unit, selected_val, _, default_val = resolve_weights_for_pricing(
-            product,
-            selected_weight
-        )
-
-        selected_val = Decimal(selected_val)
-        default_val = Decimal(default_val)
-        unit_price = Decimal(unit_price)
-
-        # calculate correct price
-        if is_per_unit:
-            final_price = unit_price * selected_val * quantity
-        else:
-            final_price = unit_price * (selected_val / default_val) * quantity
-
-        # update item quantity
-        cart_item.quantity = int(quantity)
-        cart_item.save()
-
-        return JsonResponse({
-            "success": True,
-            "final_price": f"{final_price:.2f}"
-        })
-
-    except CartItem.DoesNotExist:
-        return JsonResponse({"success": False, "error": "Item not found"})
-
 
 def toggle_wishlist(request, product_id):
     product = get_object_or_404(Product, id=product_id)
@@ -2169,54 +2042,62 @@ def logout_view(request):
 def update_cart_qty(request, item_id, qty):
     try:
         item = CartItem.objects.get(id=item_id, user=request.user)
-
-        item.quantity = int(qty)
-        item.save()
-
-        cart_items = CartItem.objects.filter(user=request.user)
-
-        subtotal = Decimal("0.00")
-        for ci in cart_items:
-            weight_value = Decimal(str(ci.product.convert_weight_value(ci.weight)))
-            unit_price = ci.product.discounted_price if ci.product.is_offer_active else ci.product.base_price
-            final_price = unit_price * weight_value * ci.quantity
-            subtotal += final_price
-
-        tax = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"))
-        total = (subtotal + tax).quantize(Decimal("0.01"))
-
-        return JsonResponse({
-            "success": True,
-            "subtotal": f"{subtotal:.2f}",
-            "tax": f"{tax:.2f}",
-            "total": f"{total:.2f}",
-        })
-
-    except CartItem.DoesNotExist:
+    except:
         return JsonResponse({"success": False}, status=404)
+
+    qty = max(1, int(qty))
+    item.quantity = qty
+    item.save()
+
+    line_total = (Decimal(item.unit_price) * qty).quantize(Decimal("0.01"))
+
+    cart_items = CartItem.objects.filter(user=request.user)
+
+    subtotal = sum((Decimal(ci.unit_price) * ci.quantity) for ci in cart_items)
+    tax = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"))
+    total = (subtotal + tax).quantize(Decimal("0.01"))
+
+    return JsonResponse({
+        "success": True,
+        "line_total": f"{line_total:.2f}",
+        "subtotal": f"{subtotal:.2f}",
+        "tax": f"{tax:.2f}",
+        "total": f"{total:.2f}",
+    })
+
 
 @csrf_exempt
 def update_guest_cart_qty(request):
     cart = request.session.get("cart", [])
-    product_id = request.POST.get("product_id")
-    weight = request.POST.get("weight")
+
+    key = int(request.POST.get("key"))
     qty = int(request.POST.get("qty"))
 
-    for item in cart:
-        if str(item["product_id"]) == str(product_id) and item["weight"] == weight:
+    if key < 0 or key >= len(cart):
+        return JsonResponse({"success": False})
 
-            item["quantity"] = qty
+    cart[key]["quantity"] = qty
 
-            unit_price = Decimal(item["unit_price"])
+    unit_price = Decimal(cart[key]["price"])
+    final_price = (unit_price * qty).quantize(Decimal("0.01"))
 
-            final_price = unit_price * qty
-            item["final_price"] = float(final_price)
-            break
+    cart[key]["final_price"] = float(final_price)
 
     request.session["cart"] = cart
     request.session.modified = True
 
-    return JsonResponse({"success": True})
+    # totals
+    subtotal = sum(Decimal(i["final_price"]) for i in cart)
+    tax = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"))
+    total = (subtotal + tax).quantize(Decimal("0.01"))
+
+    return JsonResponse({
+        "success": True,
+        "line_total": f"{final_price:.2f}",
+        "subtotal": f"{subtotal:.2f}",
+        "tax": f"{tax:.2f}",
+        "total": f"{total:.2f}",
+    })
 
 import random
 from django.core.mail import send_mail

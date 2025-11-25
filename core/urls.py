@@ -31,6 +31,8 @@ urlpatterns = [
     path('category/<int:category_id>/', views.category_products, name='category_products'),
     path('category/<int:category_id>/product/<int:product_id>/', views.product_detail, name='product_detail'),
     path('wishlist/', views.wishlist_view, name='wishlist_page'),
+    path('cart/update/<int:item_id>/', views.update_cart, name='update_cart'),
+
     path('toggle-wishlist/<int:product_id>/', views.toggle_wishlist, name='toggle_wishlist'),
     path('cart/remove/<int:item_id>/', views.remove_from_cart, name='remove_from_cart'),
     path("cart/remove-guest/<int:index>/", views.remove_from_cart_guest, name="remove_from_cart_guest"),
@@ -43,7 +45,6 @@ urlpatterns = [
     path('check-delivery-feasibility/', views.check_delivery_feasibility, name='check_delivery_feasibility'),
     path('order-confirmation/<int:order_id>/', views.order_confirmation, name='order_confirmation'),
     path("my-orders/", views.my_orders, name="my_orders"),
-    path('cart/update/', views.update_cart_item, name='update_cart_item'),
     path('offers/', views.offers_page, name='offers_page'),
     path('check-delivery/', views.check_delivery_zone, name='check_delivery'),
     path('get-slots/', views.get_available_slots, name='get_slots'),

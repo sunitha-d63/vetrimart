@@ -1,172 +1,168 @@
 {% extends 'core/base.html' %}
 {% load static %}
-{% load wishlist_tags %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/cart.css' %}">
 {% endblock %}
 
 {% block content %}
-<div class="container cart-container py-4">
-    <h2 class="text-center fw-bold mb-4 cart-title-main wishlist-heading">🛒 Your Cart</h2>
+
+<div class="container my-5 cart-container">
+
+    <h2 class="text-center mb-4 fw-bold cartheading">Cart</h2>
 
     {% if cart_items %}
-    <div class="row g-4">
-
+    <div class="row">
         <div class="col-lg-8">
 
-            {% for item in cart_items %}
-            <div class="cart-item 
-                {% if not user.is_authenticated %}guest-item{% endif %}"
-                {% if not user.is_authenticated %}
-                    data-pid="{{ item.product_id }}"
-                    data-weight="{{ item.weight }}"
-                {% else %}
-                    data-id="{{ item.id }}"
-                {% endif %}
-            >
+            <div class="cart-list">
 
-                <div class="cart-img-box">
-                    {% if not user.is_authenticated %}
-                        <img src="{{ item.image }}" alt="{{ item.title }}">
-                    {% else %}
-                        <img src="{{ item.product.image.url }}" alt="{{ item.product.title }}">
-                    {% endif %}
-                </div>
+                {% for item in cart_items %}
+                <div class="cart-item d-flex align-items-center justify-content-between mb-4 p-3 shadow-sm"
+                     {% if not is_guest %} data-id="{{ item.id }}"{% else %} data-key="{{ item.key }}"{% endif %}>
 
-                <div class="cart-info-box">
+                    <div class="cart-img-wrap">
+                        {% if is_guest %}
+                            <img src="{{ item.image }}" class="cart-img" alt="{{ item.title }}">
+                        {% else %}
+                            <img src="{{ item.product.image.url }}" class="cart-img" alt="{{ item.product.title }}">
+                        {% endif %}
+                    </div>
 
-                    <div class="cart-item-header">
-                        <h5 class="cart-item-title">
-                            {% if not user.is_authenticated %}
+
+                    <div class="cart-info flex-grow-1 px-3">
+                        <h5 class="cart-title">
+                            {% if is_guest %}
                                 {{ item.title }}
                             {% else %}
                                 {{ item.product.title }}
                             {% endif %}
                         </h5>
 
-                        {% if not user.is_authenticated %}
-                            <a href="{% url 'remove_from_cart_guest' forloop.counter0 %}" class="remove-icon">
+                        <p class="mb-1 text-muted">
+                            {{ item.weight }}
+                        </p>
+
+
+{% if is_guest %}
+    {# Guest User Pricing #}
+    {% if item.offer_price %}
+        <p class="text-success small mb-1">
+            Offer Price: ₹{{ item.offer_price|floatformat:2 }} per {{ item.unit }}
+        </p>
+        <p class="small text-muted" style="text-decoration: line-through;">
+            MRP: ₹{{ item.base_price|floatformat:2 }} per {{ item.unit }}
+        </p>
+    {% else %}
+        <p class="text-dark small mb-1">
+            Price: ₹{{ item.unit_price|floatformat:2 }}
+        </p>
+    {% endif %}
+{% else %}
+    {# Logged-in user pricing #}
+    {% if item.product.is_offer_active %}
+        <p class="text-success small mb-1">
+            Offer Price: ₹{{ item.product.discounted_price|floatformat:2 }} per {{ item.product.unit|upper }}
+        </p>
+        <p class="small text-muted" style="text-decoration: line-through;">
+            MRP: ₹{{ item.product.base_price|floatformat:2 }} per {{ item.product.unit|upper }}
+        </p>
+    {% else %}
+        <p class="text-dark small mb-1">
+            Price: ₹{{ item.unit_price|floatformat:2 }}
+        </p>
+    {% endif %}
+{% endif %}
+                    </div>
+
+                    <div class="qty-controls text-center">
+
+                        {% if is_guest %}
+                            <form method="POST" action="{% url 'update_cart' item.key %}" class="qty-form">
+                        {% else %}
+                            <form method="POST" action="{% url 'update_cart' item.id %}" class="qty-form">
+                        {% endif %}
+                            {% csrf_token %}
+                            <div class="qty-box d-flex align-items-center">
+                               <button type="button" class="qty-btn decrease">−</button>
+
+<input type="number" name="quantity"
+       value="{{ item.quantity }}"
+       min="1"
+       class="qty-input"
+       readonly>
+
+<button type="button" class="qty-btn increase">+</button>
+
+                            </div>
+                        </form>
+
+                        <p class="fw-semibold mt-2 final-price">
+                            ₹{% if is_guest %}{{ item.final_price|floatformat:2 }}{% else %}{{ item.final_price|floatformat:2 }}{% endif %}
+                        </p>
+                    </div>
+
+                    <div class="delete-wrap">
+                        {% if is_guest %}
+                            <a href="{% url 'remove_from_cart_guest' item.key %}" class="text-danger fs-5" aria-label="Remove item">
                                 <i class="bi bi-trash"></i>
                             </a>
                         {% else %}
-                            <a href="{% url 'remove_from_cart' item.id %}" class="remove-icon">
+                            <a href="{% url 'remove_from_cart' item.id %}" class="text-danger fs-5" aria-label="Remove item">
                                 <i class="bi bi-trash"></i>
                             </a>
                         {% endif %}
                     </div>
 
-                    <!-- WEIGHT -->
-                    <p class="cart-weight">
-                        {{ item.weight }}
-                        <span class="unit">
-                            (
-                                {% if not user.is_authenticated %}
-                                    {{ item.converted_weight }} {{ item.unit }}
-                                {% else %}
-                                    {{ item.converted_weight_display }} {{ item.product.unit }}
-                                {% endif %}
-                            )
-                        </span>
-                    </p>
-
-                    <div class="cart-price-line">
-                        <span class="new-price">₹{{ item.final_price|floatformat:2 }}</span>
-                        <span class="per-unit">for {{ item.weight }}</span>
-                    </div>
-
-{% if not user.is_authenticated %}
-    <!-- Correct Guest Hidden Inputs -->
-    <input type="hidden" class="unit-price" value="{{ item.unit_price }}">
-    <input type="hidden" class="weight-mult" value="{{ item.converted_weight }}">
-    <input type="hidden" class="default-weight" value="{{ item.default_weight }}">
-    <input type="hidden" class="is-per-unit" value="{{ item.is_per_unit|yesno:'1,0' }}">
-{% else %}
-
-    {% if item.is_per_unit %}
-        <input type="hidden" class="unit-price" value="{{ item.single_unit_price }}">
-        <input type="hidden" class="weight-mult" value="{{ item.converted_weight_display }}">
-        <input type="hidden" class="default-weight" value="{{ item.default_weight }}">
-        <input type="hidden" class="is-per-unit" value="1">
-    {% else %}
-        <input type="hidden" class="unit-price" value="{{ item.single_unit_price }}">
-        <input type="hidden" class="weight-mult" value="1">
-        <input type="hidden" class="default-weight" value="1">
-        <input type="hidden" class="is-per-unit" value="0">
-    {% endif %}
-{% endif %}
-
-
-
-
-                    <div class="cart-bottom-row">
-
-                        <div class="qty-control">
-                            <button class="qty-btn minus" type="button">−</button>
-
-                            <input type="number"
-                                   class="qty-input"
-                                   min="1"
-                                   value="{{ item.quantity }}"
-                                   data-id="{% if not user.is_authenticated %}{{ forloop.counter0 }}{% else %}{{ item.id }}{% endif %}">
-
-                            <button class="qty-btn plus" type="button">+</button>
-                        </div>
-
-                        <div class="item-total">
-                            ₹<span id="price-{% if not user.is_authenticated %}{{ forloop.counter0 }}{% else %}{{ item.id }}{% endif %}">
-                                {{ item.final_price|floatformat:2 }}
-                            </span>
-                        </div>
-
-                    </div>
-
                 </div>
+                {% endfor %}
 
             </div>
-            {% endfor %}
 
+            <a href="{% url 'our_products' %}" class="btn shoppingbtn mt-3">
+                ← Continue Shopping
+            </a>
         </div>
 
-        <!-- RIGHT SIDE SUMMARY -->
         <div class="col-lg-4">
-            <div class="order-summary-card shadow-sm">
+            <div class="summary-box shadow-sm p-4">
 
-                <h4 class="summary-title">Order Summary</h4>
+                <h4 class="fw-bold mb-3">Price Summary</h4>
 
-                <div class="summary-row">
-                    <span>Subtotal</span>
-                    <strong>₹<span id="subtotal">{{ subtotal|floatformat:2 }}</span></strong>
+                <div class="d-flex justify-content-between mb-2">
+                    <span>Subtotal:</span>
+                    <span id="subtotal">₹{{ subtotal|floatformat:2 }}</span>
                 </div>
 
-                <div class="summary-row">
-                    <span>Tax (5%)</span>
-                    <strong>₹<span id="tax">{{ tax|floatformat:2 }}</span></strong>
+                <div class="d-flex justify-content-between mb-2">
+                    <span>Tax (5%):</span>
+                    <span id="tax">₹{{ tax|floatformat:2 }}</span>
                 </div>
 
                 <hr>
 
-                <div class="summary-total-row">
-                    <span>Total</span>
-                    <strong>₹<span id="total">{{ total|floatformat:2 }}</span></strong>
+                <div class="d-flex justify-content-between fw-bold mb-3">
+                    <span>Total:</span>
+                    <span id="total">₹{{ total|floatformat:2 }}</span>
                 </div>
 
-                {% if user.is_authenticated %}
-                    <a href="{% url 'payment_page' %}" class="checkout-btn">Proceed to Buy</a>
-                {% else %}
-                    <a href="{% url 'login' %}?next={% url 'payment_page' %}" class="checkout-btn">Proceed to Buy</a>
-                {% endif %}
+                <a href="{% url 'payment_page' %}" class="btn checkout-btn w-100 py-2">
+                    Proceed to Checkout
+                </a>
 
             </div>
         </div>
-
     </div>
 
     {% else %}
-        <div class="alert alert-warning text-center mt-5">Your cart is empty.</div>
+    <div class="text-center empty-cart">
+        <h4 class="mt-3">Your cart is empty!</h4>
+        <a href="{% url 'our_products' %}" class="btn startbtn mt-3">Start Shopping</a>
+    </div>
     {% endif %}
 
 </div>
+
 {% endblock %}
 
 {% block extra_js %}

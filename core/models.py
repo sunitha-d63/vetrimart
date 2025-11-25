@@ -233,21 +233,27 @@ class Product(models.Model):
 
         return Decimal("1")
 
+from django.conf import settings
+from django.db import models
+from decimal import Decimal
+
 class CartItem(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='cart_items', on_delete=models.CASCADE)
-    product = models.ForeignKey(Product, on_delete=models.CASCADE)
-    weight = models.CharField(max_length=50)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cart_items"
+    )
+    product = models.ForeignKey("Product", on_delete=models.CASCADE)
+    weight = models.CharField(max_length=64, blank=True)  # e.g. "100ML", "250G"
     quantity = models.PositiveIntegerField(default=1)
+    # unit_price = Decimal price for single unit (already multiplied by weight if needed),
+    # final_price = unit_price * quantity
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
+    final_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
-    @property
-    def converted_weight(self):
-        return self.product.convert_weight_value(self.weight)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
-    @property
-    def total_price(self):
-        weight_multiplier = self.converted_weight
-        unit_price = self.product.discounted_price if self.product.is_offer_active else self.product.base_price
-        return round(unit_price * weight_multiplier * self.quantity, 2)
+    class Meta:
+        unique_together = ("user", "product", "weight")
 
     def __str__(self):
         return f"{self.product.title} ({self.weight}) x {self.quantity}"

@@ -56,11 +56,20 @@
         <small id="livePriceInfo" class="text-muted"></small>
         <p id="livePriceUnit" class="text-muted mb-0"></p>
 
-        {% if product.is_offer_active %}
-  <p class="text-muted mb-0" id="offer-mrp" style="text-decoration: line-through;">
-      MRP: ₹{{ product.base_price|floatformat:2 }}
-  </p>
+{% if product.is_offer_active %}
+    <p class="text-muted mb-0" style="text-decoration: line-through;">
+        MRP: ₹{{ product.base_price|floatformat:2 }} per {{ product.unit|upper }}
+    </p>
+
+    <p class="text-success fw-semibold mb-1">
+        Offer Price: ₹{{ product.discounted_price|floatformat:2 }} per {{ product.unit|upper }}
+    </p>
+{% else %}
+    <p class="text-dark fw-semibold mb-1">
+        Price: ₹{{ product.base_price|floatformat:2 }} per {{ product.unit|upper }}
+    </p>
 {% endif %}
+
 
 
       {% if product.is_offer_active %}
@@ -136,13 +145,15 @@
               class="qty-box d-flex align-items-center justify-content-between"
             >
               <button type="button" class="qty-btn minus">−</button>
-              <input
-                type="number"
-                id="quantityInput"
-                name="quantity"
-                value="1"
-                min="1"
-              />
+               <input
+        type="number"
+        id="quantityInput"
+        name="quantity"
+        value="1"
+        min="1"
+        readonly
+        class="qty-input"
+    />
               <button type="button" class="qty-btn plus">+</button>
             </div>
           </div>
