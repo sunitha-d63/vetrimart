@@ -8,74 +8,70 @@ document.addEventListener("DOMContentLoaded", () => {
     minusBtns.forEach(btn => btn.addEventListener("click", () => changeQty(btn, "minus")));
     qtyInputs.forEach(inp => inp.addEventListener("input", () => changeQty(inp, "input")));
 
-   function changeQty(target, action) {
+    function changeQty(target, action) {
 
-    const wrapper = target.closest(".cart-item");
-    const qtyInput = wrapper.querySelector(".qty-input");
+        const wrapper = target.closest(".cart-item");
+        const qtyInput = wrapper.querySelector(".qty-input");
 
-    let qty = parseInt(qtyInput.value);
+        let qty = parseInt(qtyInput.value);
 
-    if (action === "plus") qty++;
-    if (action === "minus" && qty > 1) qty--;
-    if (action === "input") {
-        if (qty < 1 || isNaN(qty)) qty = 1;
+        if (action === "plus") qty++;
+        if (action === "minus" && qty > 1) qty--;
+        if (action === "input" && (qty < 1 || isNaN(qty))) qty = 1;
+
+        qtyInput.value = qty;
+
+        // 🔥 Correct price calculation
+        const baseUnitPrice = parseFloat(wrapper.querySelector(".unit-price").value);
+        const isPerUnit = wrapper.querySelector(".is-per-unit").value === "1";
+
+        let converted = parseFloat(wrapper.querySelector(".weight-mult").value) || 1;
+        let defaultW = parseFloat(wrapper.querySelector(".default-weight").value) || 1;
+
+        let multiplier = 1;
+
+        if (isPerUnit) {
+            multiplier = converted / defaultW;
+        }
+
+        const actualSinglePrice = baseUnitPrice * multiplier;
+        const itemTotal = (actualSinglePrice * qty).toFixed(2);
+
+        wrapper.querySelector(".item-total span").innerText = itemTotal;
+
+        // Update "for ___ × qty"
+        const perUnitLabel = wrapper.querySelector(".cart-price-line .per-unit");
+        if (perUnitLabel) {
+            const weightOnly = wrapper.querySelector(".cart-weight").childNodes[0].textContent.trim();
+            perUnitLabel.innerText = `for ${weightOnly} × ${qty}`;
+        }
+
+        updateSummary();
+
+        // Server update
+        if (wrapper.dataset.id) {
+            updateServer(wrapper.dataset.id, qty);
+        } else {
+            updateGuest(wrapper, qty);
+        }
     }
 
-    qtyInput.value = qty;
+    // Set default "for ___ × qty"
+    document.querySelectorAll(".cart-item").forEach(wrapper => {
+        const qty = parseInt(wrapper.querySelector(".qty-input").value);
+        const perUnitLabel = wrapper.querySelector(".cart-price-line .per-unit");
 
-  const unitPrice = parseFloat(wrapper.querySelector(".unit-price")?.value) || 0;
-const weightMult = parseFloat(wrapper.querySelector(".weight-mult")?.value) || 1;
-const isPerUnit = parseInt(wrapper.querySelector(".is-per-unit")?.value) || 0;
-
-
-    let itemTotal = unitPrice * weightMult * qty;
-    itemTotal = itemTotal.toFixed(2);
-
-    // UPDATE RIGHT SIDE TOTAL
-    wrapper.querySelector(".item-total span").innerText = itemTotal;
-
-    // UPDATE LEFT PRICE (per 1 quantity)
-    const leftPrice = wrapper.querySelector(".new-price");
-    leftPrice.innerText = "₹" + (itemTotal / qty).toFixed(2);
-
-    // -------------------------------
-    // ✅ UPDATE "for WEIGHT × QTY"
-    // -------------------------------
-    const perUnitLabel = wrapper.querySelector(".cart-price-line .per-unit");
-
-    if (perUnitLabel) {
-
-        // Extract ONLY the first weight part (example: 250ML, 1KG, 500G)
-        const weightElement = wrapper.querySelector(".cart-weight");
-        let weightOnly = weightElement.childNodes[0].textContent.trim();
-
-        perUnitLabel.innerText = `for ${weightOnly} × ${qty}`;
-    }
-
-    updateSummary();
-
-    if (wrapper.dataset.id) {
-        updateServer(wrapper.dataset.id, qty);
-    } else {
-        updateGuest(wrapper, qty);
-    }
-}
-
-document.querySelectorAll(".cart-item").forEach(wrapper => {
-    const qty = parseInt(wrapper.querySelector(".qty-input").value);
-    const perUnitLabel = wrapper.querySelector(".cart-price-line .per-unit");
-
-    if (perUnitLabel) {
-        const weightText = wrapper.querySelector(".cart-weight").childNodes[0].textContent.trim();
-        perUnitLabel.innerText = `for ${weightText} × ${qty}`;
-    }
-});
+        if (perUnitLabel) {
+            const weightText = wrapper.querySelector(".cart-weight").childNodes[0].textContent.trim();
+            perUnitLabel.innerText = `for ${weightText} × ${qty}`;
+        }
+    });
 
     function updateSummary() {
         let subtotal = 0;
 
         document.querySelectorAll(".item-total span").forEach(sp => {
-            subtotal += parseFloat(sp.innerText);
+            subtotal += parseFloat(sp.innerText) || 0;
         });
 
         const tax = subtotal * 0.05;
@@ -88,7 +84,6 @@ document.querySelectorAll(".cart-item").forEach(wrapper => {
 
     function updateServer(itemId, qty) {
         fetch(`/update-cart-qty/${itemId}/${qty}/`, {
-
             method: "POST",
             headers: {
                 "X-CSRFToken": getCSRF(),

@@ -5,8 +5,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const selectedWeightSelect = document.getElementById("selectedWeight");
   const qtyInput = document.getElementById("quantityInput");
   const livePrice = document.getElementById("livePrice");
-  const mrpText = document.getElementById("mrpText");
-  const savingsText = document.getElementById("savingsText");
+
+  const liveInfo = document.getElementById("livePriceInfo");
+  const liveUnit = document.getElementById("livePriceUnit");
 
   const basePrice = parseFloat(document.getElementById("basePrice").value);
   const discountPrice = parseFloat(document.getElementById("discountPrice").value);
@@ -14,8 +15,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const isOfferActive = document.getElementById("isOfferActive").value === "True";
   const defaultWeight = parseFloat(document.getElementById("defaultWeightVal").value);
 
-  const perUnitTypes = ["kg", "litre"];
-  const isPerUnit = perUnitTypes.includes(productUnit);
+  const isPerUnit = ["kg", "litre"].includes(productUnit);
 
   function parseNumber(v) {
     const n = parseFloat(v);
@@ -42,37 +42,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const final = computeFinal(unit_price, selectedVal, qty);
     livePrice.innerText = "₹" + final.toFixed(2);
 
- const liveInfo = document.getElementById("livePriceInfo");
-const liveUnit = document.getElementById("livePriceUnit");
+    if (liveInfo && liveUnit) {
+      liveInfo.innerText = `${qty} × ${selectedLabel}`;
+      const perUnitPrice = final / qty;
+      liveUnit.innerText = `₹${perUnitPrice.toFixed(2)} per ${selectedLabel}`;
 
-if (liveInfo && liveUnit) {
-
-    // Show: 2 × 250ML
-    liveInfo.innerText = `${qty} × ${selectedLabel}`;
-
-    const perUnitPrice = final / qty;
-
-    let perText = "";
-
-    if (isPerUnit) {
-        perText = `₹${perUnitPrice.toFixed(2)} per ${selectedVal}${productUnit.toUpperCase()}`;
-    } else {
-        perText = `₹${perUnitPrice.toFixed(2)} per ${selectedLabel}`;
+      // ⭐ THIS is the only new required line
+      document.getElementById("trueUnitPrice").value = perUnitPrice.toFixed(2);
     }
-
-    liveUnit.innerText = perText;
-}
-    if (isOfferActive) {
-        const savePerUnit = basePrice - discountPrice;
-        const saveTotal = computeFinal(savePerUnit, selectedVal, qty);
-        const percent = Math.round((savePerUnit / basePrice) * 100);
-
-        savingsText.innerText = `You save ₹${saveTotal.toFixed(2)} (${percent}% OFF)`;
-        savingsText.classList.remove("d-none");
-    } else {
-        savingsText.classList.add("d-none");
-    }
-}
+  }
 
   weightSelector.addEventListener("click", (e) => {
     e.stopPropagation();

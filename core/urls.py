@@ -76,7 +76,5 @@ urlpatterns = [
     path("reset-password/",views.reset_password, name="reset_password"),
     path("update-cart-qty/<int:item_id>/<int:qty>/", views.update_cart_qty, name="update_cart_qty"),
     path("update-guest-cart/", views.update_guest_cart_qty, name="update_guest_cart"),
-
-
 ]
 

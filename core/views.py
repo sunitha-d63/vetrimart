@@ -395,29 +395,46 @@ def cart_view(request):
         "is_guest": True,
     })
 
+from decimal import Decimal, ROUND_HALF_UP
+
+from decimal import Decimal, ROUND_HALF_UP
+
+from decimal import Decimal, ROUND_HALF_UP
+from django.shortcuts import get_object_or_404, redirect
+from .models import Product, CartItem
+
 def add_to_cart(request, product_id):
     product = get_object_or_404(Product, id=product_id)
 
     action_type = request.POST.get("action_type", "").strip()
-
     weight = (request.POST.get("weight") or request.GET.get("weight") or "").strip()
     quantity = int(request.POST.get("quantity", 1))
 
     weight_options = product.get_weight_options_list()
+
     if not weight:
-        weight = weight_options[0] if weight_options else "1"
+        weight = weight_options[0]
     weight = weight.upper().strip()
 
-    unit_price = product.discounted_price if product.is_offer_active else product.base_price
-    converted_weight_val = product.convert_weight_value(weight)
+    # convert weight to decimal (0.25 / 1 etc...)
+    selected_weight_val = Decimal(str(product.convert_weight_value(weight)))
+    default_weight_val = Decimal(str(product.convert_weight_value(weight_options[0])))
 
-    if weight_options:
-        default_weight_val = product.convert_weight_value(weight_options[0])
+    # per unit or piece/litre? (same as login user logic)
+    is_per_unit = product.unit.lower() in ("kg", "g", "litre", "ml")
+
+    base_price = product.discounted_price if product.is_offer_active else product.base_price
+    base_price = Decimal(str(base_price))
+
+    # ⭐ TRUE single-unit price (same used for login user)
+    if is_per_unit:
+        single_unit_price = (base_price * selected_weight_val) / default_weight_val
     else:
-        default_weight_val = Decimal("1")
+        single_unit_price = base_price
 
-    is_per_unit = product.unit.lower() in ("kg", "litre")
+    single_unit_price = single_unit_price.quantize(Decimal("0.01"))
 
+    # BUY NOW
     if action_type == "buy_now":
         request.session["buy_now_item"] = {
             "product_id": product.id,
@@ -426,13 +443,13 @@ def add_to_cart(request, product_id):
         }
         return redirect("payment_page")
 
+    # LOGIN USER (unchanged)
     if request.user.is_authenticated:
         item, created = CartItem.objects.get_or_create(
             user=request.user,
             product=product,
             weight=weight
         )
-
         if created:
             item.quantity = quantity
         else:
@@ -441,39 +458,39 @@ def add_to_cart(request, product_id):
         item.save()
         return redirect("cart")
 
+    # GUEST USER
     cart = request.session.get("cart", [])
+    found = False
 
     for entry in cart:
         if entry["product_id"] == product.id and entry["weight"] == weight:
-            entry["quantity"] = entry.get("quantity", 0) + quantity
-
-            entry["unit_price"] = str(unit_price)
-            entry["converted_weight"] = str(converted_weight_val)
+            entry["quantity"] += quantity
+            entry["unit_price"] = str(single_unit_price)
+            entry["converted_weight"] = str(selected_weight_val)
             entry["default_weight"] = str(default_weight_val)
             entry["is_per_unit"] = is_per_unit
             entry["unit"] = product.unit
+            found = True
+            break
 
-            request.session["cart"] = cart
-            request.session.modified = True
-            return redirect("cart")
-
-    cart.append({
-        "product_id": product.id,
-        "title": product.title,
-        "weight": weight,
-        "quantity": quantity,
-        "unit_price": str(unit_price),
-        "image": product.image.url if product.image else "",
-
-        "converted_weight": str(converted_weight_val),
-        "default_weight": str(default_weight_val),
-        "unit": product.unit,
-        "is_per_unit": is_per_unit,
-    })
+    if not found:
+        cart.append({
+            "product_id": product.id,
+            "title": product.title,
+            "weight": weight,
+            "quantity": quantity,
+            "unit_price": str(single_unit_price),  # ⭐ correct single unit price
+            "image": product.image.url if product.image else "",
+            "converted_weight": str(selected_weight_val),
+            "default_weight": str(default_weight_val),
+            "unit": product.unit,
+            "is_per_unit": is_per_unit,
+        })
 
     request.session["cart"] = cart
     request.session.modified = True
     return redirect("cart")
+
 
 @login_required
 def remove_from_cart(request, item_id):
@@ -1940,66 +1957,7 @@ def payment_info(request):
 def quality_info(request):
     return render(request, 'core/quality_info.html')
 
-
 User = get_user_model()
-
-import random
-
-# def forgot_password(request):
-#     list(messages.get_messages(request))
-
-#     if request.method == "POST":
-#         form = ForgotPasswordForm(request.POST)
-
-#         if form.is_valid():
-#             email = form.cleaned_data["email"].strip().lower()
-
-#             try:
-#                 user = CustomUser.objects.get(email__iexact=email)
-#             except CustomUser.DoesNotExist:
-#                 messages.error(request, "❌ This email is not registered.")
-#                 return redirect("forgot_password")
-
-#             request.session["reset_user_id"] = user.id
-#             messages.success(request, "✔ Email found. Please set your new password.")
-#             return redirect("reset_password")
-
-#     else:
-#         form = ForgotPasswordForm()
-
-#     return render(request, "core/forgot_password.html", {"form": form})
-
-# from django.contrib.auth.hashers import make_password
-
-# def reset_password(request):
-
-#     if "reset_user_id" not in request.session:
-#         return redirect("forgot_password")
-
-#     try:
-#         user = CustomUser.objects.get(id=request.session["reset_user_id"])
-#     except CustomUser.DoesNotExist:
-#         messages.error(request, "User not found.")
-#         return redirect("forgot_password")
-
-#     if request.method == "POST":
-#         form = ResetPasswordForm(request.POST)
-
-#         if form.is_valid():
-#             new_password = form.cleaned_data["new_password"]
-
-#             user.password = make_password(new_password)
-#             user.save()
-
-#             request.session.pop("reset_user_id", None)
-
-#             messages.success(request, "✔ Password reset successfully! Please login.")
-#             return redirect("login")
-
-#     else:
-#         form = ResetPasswordForm()
-
-#     return render(request, "core/reset_password.html", {"form": form})
 
 @login_required(login_url='login')
 def checkout(request):
@@ -2246,24 +2204,19 @@ def update_guest_cart_qty(request):
 
     for item in cart:
         if str(item["product_id"]) == str(product_id) and item["weight"] == weight:
+
             item["quantity"] = qty
 
-            weight_val = Decimal(str(
-                item.get("weight_multiplier") or 
-                item.get("converted_weight") or 
-                1
-            ))
+            unit_price = Decimal(item["unit_price"])
 
-            unit_price = Decimal(str(item["unit_price"]))
-            item["final_price"] = float(unit_price * weight_val * qty)
+            final_price = unit_price * qty
+            item["final_price"] = float(final_price)
             break
 
     request.session["cart"] = cart
     request.session.modified = True
 
     return JsonResponse({"success": True})
-
-
 
 import random
 from django.core.mail import send_mail
