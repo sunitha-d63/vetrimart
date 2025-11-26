@@ -1,5 +1,6 @@
 {% extends 'core/base.html' %} {% load static %}
 {% load wishlist_tags %}
+{% load review_filters %}
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/category_products.css' %}" />
 {% endblock %} {% block content %}
@@ -63,90 +64,104 @@
       </div>
     </div>
   </div>
-  <div class="row row-cols-1 row-cols-md-3 g-4">
+
+<div class="row row-cols-1 row-cols-md-3 g-4">
     {% for product in products %}
     <div class="col animate-card">
-      <div
-        class="card product-card h-100 border-0 shadow-sm position-relative rounded-4">
-        <form
-          action="{% url 'toggle_wishlist' product.id %}"
-          method="post"
-          class="wishlist-form position-absolute top-0 end-0 m-2">
-          {% csrf_token %}
-          <button
-    type="submit"
-    class="wishlist-btn bg-white border-0 rounded-circle shadow-sm p-2"
->
-{% if user.is_authenticated %}
-    {% if product|in_user_wishlist:user %}
-        <span class="heart-icon heart-red">❤️</span>
-    {% else %}
-        <span class="heart-icon heart-empty">🤍</span>
-    {% endif %}
 
-{% else %}
-    {% if product.id in guest_wishlist_ids %}
-        <span class="heart-icon heart-red">❤️</span>
-    {% else %}
-        <span class="heart-icon heart-empty">🤍</span>
-    {% endif %}
+      <div class="card product-card h-100 border-0 shadow-sm position-relative rounded-4"
+           {% if product.stock == 0 %} style="opacity:0.7;" {% endif %}>
+
+        {# ❤️ WISHLIST BUTTON #}
+      {# ❤️ WISHLIST BUTTON #}
+<form action="{% url 'toggle_wishlist' product.id %}" method="post"
+      class="wishlist-form position-absolute top-0 end-0 m-2">
+    {% csrf_token %}
+    <button type="submit" class="wishlist-btn bg-white border-0 rounded-circle shadow-sm p-2">
+        {% if user.is_authenticated %}
+            {% if product|in_user_wishlist:user %}
+                <span class="heart-icon heart-red">❤️</span>
+            {% else %}
+                <span class="heart-icon heart-empty">🤍</span>
+            {% endif %}
+        {% else %}
+            {% if product.id in guest_wishlist_ids %}
+                <span class="heart-icon heart-red">❤️</span>
+            {% else %}
+                <span class="heart-icon heart-empty">🤍</span>
+            {% endif %}
+        {% endif %}
+    </button>
+</form>
+
+{% if product.is_offer_active %}
+    <span class="badge bg-danger position-absolute top-0 start-0 m-2 px-3 py-2 rounded-pill shadow-sm">
+        {{ product.discount_percent }}% OFF
+    </span>
 {% endif %}
 
-
-</button>
-
-
-        </form>
-        {% if product.is_offer_active %}
-        <span
-          class="badge bg-danger position-absolute top-0 start-0 m-2 px-3 py-2 rounded-pill shadow-sm"
-        >
-          {{ product.discount_percent }}% OFF
-        </span>
+        {% if product.stock == 0 %}
+            <a href="javascript:void(0)" class="card-img-link" style="pointer-events:none;">
+        {% else %}
+            <a href="{{ product.get_absolute_url }}" class="card-img-link">
         {% endif %}
-
-        <a href="{{ product.get_absolute_url }}" class="card-img-link">
-          <img
-            src="{{ product.image.url }}"
-            class="card-img-top rounded-top-4"
-            alt="{{ product.title }}"
-          />
+            <img src="{{ product.image.url }}" class="card-img-top rounded-top-4" alt="{{ product.title }}">
         </a>
 
-        <div
-          class="card-body text-center d-flex flex-column justify-content-between"
-        >
-          <h5 class="card-title fs-5 fw-bold text-uppercase mb-2">
-            {{ product.title }}
-          </h5>
-          <div
-            class="card-price-block d-flex flex-column justify-content-center align-items-center"
-            style="min-height: 72px"
-          >
-            {% if product.is_offer_active %}
-            <div class="d-flex align-items-center gap-1">
-              <span class="text-decoration-line-through text-muted">
-                ₹{{ product.base_price|floatformat:2 }}
-              </span>
-              <span class="fw-bold text-danger">
-                ₹{{ product.discounted_price|floatformat:2 }}
-              </span>
-              <span class="text-muted">/ {{ product.unit }}</span>
-            </div>
-            <div class="text-muted small">
-              {{ product.offer_remaining_time }}
-            </div>
+        <div class="card-body text-center d-flex flex-column justify-content-between">
+
+          <h5 class="card-title fs-5 fw-bold text-uppercase mb-1">{{ product.title }}</h5>
+
+          {# ⭐ PRODUCT RATING #}
+          <div class="mb-2">
+           {% with rating=product|avg_rating %}
+    <div class="mb-2">
+        <span class="text-warning" style="font-size: 1rem;">
+            {% for i in "12345" %}
+                {% if forloop.counter <= rating %}
+                    ★
+                {% else %}
+                    ☆
+                {% endif %}
+            {% endfor %}
+        </span>
+
+        <small class="text-muted">
+            ({{ product.reviews.count }} reviews)
+        </small>
+    </div>
+{% endwith %}
+          </div>
+
+          {# PRICE SECTION #}
+          <div class="card-price-block d-flex flex-column justify-content-center align-items-center" style="min-height:72px;">
+            {% if product.stock == 0 %}
+                <p class="text-danger fw-bold mt-2">Out of Stock</p>
+
             {% else %}
-            <div class="d-flex align-items-center gap-1">
-              <span class="fw-bold text-success">
-                ₹{{ product.base_price|floatformat:2 }}
-              </span>
-              <span class="text-muted">/ {{ product.unit }}</span>
-            </div>
-            <div class="invisible small">placeholder</div>
+                {% if product.is_offer_active %}
+                <div class="d-flex align-items-center gap-1">
+                    <span class="text-decoration-line-through text-muted">
+                        ₹{{ product.base_price|floatformat:2 }}
+                    </span>
+                    <span class="fw-bold text-danger">
+                        ₹{{ product.discounted_price|floatformat:2 }}
+                    </span>
+                    <span class="text-muted">/ {{ product.unit }}</span>
+                </div>
+                {% else %}
+                <div class="d-flex align-items-center gap-1">
+                    <span class="fw-bold text-success">
+                        ₹{{ product.base_price|floatformat:2 }}
+                    </span>
+                    <span class="text-muted">/ {{ product.unit }}</span>
+                </div>
+                {% endif %}
             {% endif %}
           </div>
+
         </div>
+
       </div>
     </div>
     {% empty %}
@@ -156,6 +171,7 @@
       </div>
     </div>
     {% endfor %}
-  </div>
+</div>
+
 </div>
 {% endblock %}

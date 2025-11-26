@@ -237,3 +237,11 @@
   font-size: 0.85rem;
   letter-spacing: 0.3px;
 }
+.rating-stars .star {
+    color: #ccc;    
+    font-size: 16px;
+}
+
+.rating-stars .filled {
+    color: #ffcc00;   
+}

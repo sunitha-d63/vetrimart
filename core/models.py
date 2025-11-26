@@ -5,6 +5,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
+from django.db.models import Avg
 
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -112,6 +113,18 @@ class Product(models.Model):
     description = models.TextField(blank=True, null=True)
     base_price = models.DecimalField(max_digits=8, decimal_places=2)
     image = models.ImageField(upload_to="products/")
+    
+    stock = models.PositiveIntegerField(default=0)
+    status = models.CharField(
+        max_length=20,
+        choices=(
+            ('pending', 'Pending'),
+            ('approved', 'Approved'),
+            ('rejected', 'Rejected'),
+        ),
+        default='pending'
+    )
+    rejection_reason = models.TextField(blank=True, null=True)
 
     unit = models.CharField(max_length=20, choices=UNIT_CHOICES, default="kg")
     weight_options = models.CharField(max_length=200, default="500G,1KG,2KG")
@@ -164,6 +177,13 @@ class Product(models.Model):
             return (self.base_price - self.discounted_price).quantize(Decimal("0.01"))
         return Decimal("0.00")
 
+    @property
+    def avg_rating(self):
+        return self.reviews.aggregate(avg=Avg("rating"))["avg"] or 0
+    
+    @property
+    def rating_stars(self):
+        return int(round(self.avg_rating))
 
     def convert_weight_value(self, weight_str):
         """
@@ -233,19 +253,14 @@ class Product(models.Model):
 
         return Decimal("1")
 
-from django.conf import settings
-from django.db import models
-from decimal import Decimal
 
 class CartItem(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cart_items"
     )
     product = models.ForeignKey("Product", on_delete=models.CASCADE)
-    weight = models.CharField(max_length=64, blank=True)  # e.g. "100ML", "250G"
+    weight = models.CharField(max_length=64, blank=True)  
     quantity = models.PositiveIntegerField(default=1)
-    # unit_price = Decimal price for single unit (already multiplied by weight if needed),
-    # final_price = unit_price * quantity
     unit_price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0.00"))
     final_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
 
@@ -553,3 +568,15 @@ class PasswordResetOTP(models.Model):
 
     def is_valid(self):
         return timezone.now() < self.created_at + timedelta(minutes=10)
+
+
+class Review(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="reviews")
+    customer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    rating = models.IntegerField(default=1)
+    comment = models.TextField()
+    response = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.product.title} - {self.rating}★"

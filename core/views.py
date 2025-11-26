@@ -64,7 +64,10 @@ ALLOWED_HOSTS = getattr(settings, "ALLOWED_HOSTS", [])
 
 def category_products(request, category_id):
     category = get_object_or_404(Category, id=category_id)
-    products = category.products.all()
+
+    # show only approved vendor/admin products
+    products = category.products.filter(status='approved')
+
     now = timezone.now()
 
     show_offers = request.GET.get('offers') == 'true'
@@ -85,7 +88,6 @@ def category_products(request, category_id):
     elif sort == 'name_desc':
         products = products.order_by('-title')
 
-
     if request.user.is_authenticated:
         user_wishlist_ids = set(request.user.wishlist.values_list('id', flat=True))
         for product in products:
@@ -101,7 +103,7 @@ def category_products(request, category_id):
         'products': products,
         'sort': sort,
         'show_offers': show_offers,
-        'guest_wishlist_ids': guest_wishlist_ids,  
+        'guest_wishlist_ids': guest_wishlist_ids,
     })
 
 
@@ -109,10 +111,6 @@ def top_offers(request):
     offer_categories = Category.objects.filter(is_offer_category=True)
     return render(request, 'core/top_offers.html', {'offer_categories': offer_categories})
 
-
-from decimal import Decimal
-from django.shortcuts import get_object_or_404, render, redirect
-from .models import Product, CartItem
 
 def resolve_weights_for_pricing(product, selected_weight):
     # Determine per-unit (kg, litre) vs pack
@@ -130,13 +128,17 @@ def resolve_weights_for_pricing(product, selected_weight):
     return is_per_unit, Decimal(selected_val), None, Decimal(default_val)
 
 
-from decimal import Decimal
-from django.shortcuts import render, get_object_or_404
-from .models import Product
+from core.models import Review
+from django.contrib import messages
+
+from core.models import Review, OrderItem
 
 def product_detail(request, category_id, product_id):
     product = get_object_or_404(Product, id=product_id, category_id=category_id)
 
+    # ---------------------------
+    # 1️⃣  WEIGHT + PRICE LOGIC
+    # ---------------------------
     weight_options = product.get_weight_options_list()
     selected_weight = weight_options[0] if weight_options else None
 
@@ -144,17 +146,11 @@ def product_detail(request, category_id, product_id):
     adjusted_values = []
 
     for w in weight_options:
+        w_clean = w.upper().replace(" ", "")
 
-        w_clean = w.upper().replace(" ", "") 
-
-        if unit == "ml":
+        if unit in ["ml", "g"]:
             num = ''.join(filter(str.isdigit, w_clean))
             val = (Decimal(num) / Decimal("1000")) if num else Decimal("1")
-
-        elif unit == "g":
-            num = ''.join(filter(str.isdigit, w_clean))
-            val = (Decimal(num) / Decimal("1000")) if num else Decimal("1")
-
 
         elif unit in ["kg", "litre"]:
             val = product.convert_weight_value(w)
@@ -177,17 +173,82 @@ def product_detail(request, category_id, product_id):
         product.discounted_price if product.is_offer_active else product.base_price
     )
 
-    if request.method == "POST":
+    # ------------------------------------------------
+    # 2️⃣  SHOW EXISTING REVIEWS
+    # ------------------------------------------------
+    reviews = Review.objects.filter(product=product).select_related("customer")
 
+    # ------------------------------------------------
+    # 3️⃣  CHECK IF USER CAN REVIEW
+    # ------------------------------------------------
+    user_can_review = False
+    has_user_reviewed = False
+
+    if request.user.is_authenticated:
+
+        has_user_reviewed = Review.objects.filter(
+            product=product,
+            customer=request.user
+        ).exists()
+
+        user_can_review = OrderItem.objects.filter(
+            order__user=request.user,
+            product=product,
+            order__status="delivered"
+        ).exists()
+
+    # ------------------------------------------------
+    # 4️⃣  REVIEW SUBMISSION
+    # ------------------------------------------------
+    if request.method == "POST" and "add_review" in request.POST:
+
+        if not request.user.is_authenticated:
+            messages.error(request, "Login required to submit a review.")
+            return redirect("login")
+
+        if has_user_reviewed:
+            messages.error(request, "You already reviewed this product.")
+            return redirect(product.get_absolute_url())
+
+        if not user_can_review:
+            messages.error(request, "You can review only after order delivery.")
+            return redirect(product.get_absolute_url())
+
+        rating = request.POST.get("rating")
+        comment = request.POST.get("comment")
+
+        if not rating or not comment:
+            messages.error(request, "Rating and comment are required.")
+            return redirect(product.get_absolute_url())
+
+        Review.objects.create(
+            product=product,
+            customer=request.user,
+            rating=rating,
+            comment=comment
+        )
+
+        messages.success(request, "Review added successfully!")
+        return redirect(product.get_absolute_url())
+
+    # ------------------------------------------------
+    # 5️⃣  ADD TO CART SUBMISSION
+    # ------------------------------------------------
+    if request.method == "POST" and "add_review" not in request.POST:
         from .views import add_to_cart
         return add_to_cart(request, product_id)
 
+    # ------------------------------------------------
+    # 6️⃣  RELATED PRODUCTS
+    # ------------------------------------------------
     related_products = (
         Product.objects.filter(category=product.category)
         .exclude(id=product.id)[:4]
     )
 
-
+    # ------------------------------------------------
+    # 7️⃣  RENDER PAGE
+    # ------------------------------------------------
     return render(request, "core/product_detail.html", {
         "product": product,
 
@@ -200,9 +261,12 @@ def product_detail(request, category_id, product_id):
         "per_unit_price_display": per_unit_price_display,
 
         "related_products": related_products,
+        
+
+        "reviews": reviews,
+        "user_can_review": user_can_review,
+        "has_user_reviewed": has_user_reviewed,
     })
-
-
 
 
 def to_decimal(value, fallback=Decimal("0")):

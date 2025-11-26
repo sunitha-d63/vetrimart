@@ -344,6 +344,16 @@ input:focus, select:focus {
   100% { background: rgba(0, 128, 96, 0.22); }
 }
 
+.rating-stars .star {
+    color: #ccc;    
+    font-size: 16px;
+}
+
+.rating-stars .filled {
+    color: #ffcc00;   
+}
+
+
 @media (max-width: 991px) {
   .pro-img { height: 200px; }
   .pro-card { margin-bottom: 15px; }

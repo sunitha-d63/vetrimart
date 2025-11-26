@@ -39,7 +39,7 @@ class CustomUserAdmin(UserAdmin):
 class ProductInline(admin.TabularInline):
     model = Product
     extra = 1
-    fields = ('title', 'base_price', 'image', 'weight_options')
+    fields = ('title', 'base_price', 'image', 'weight_options', 'status')
     readonly_fields = ('id',)
     show_change_link = True
 
@@ -57,12 +57,14 @@ class ProductAdmin(admin.ModelAdmin):
         js = ('admin_weight_autofill.js',)
         
     list_display = (
-        'title', 'category', 'base_price', 'unit', 'get_final_price',
+        'title', 'vendor', 'category', 'base_price', 'unit',
+        'stock', 'status', 'get_final_price',
         'is_offer', 'discount_percent', 'offer_active_status',
-        'offer_start', 'offer_end'
+        'offer_start', 'offer_end',
     )
+    list_editable = ('stock', 'status')
 
-    list_filter = ('category', 'unit', 'is_offer')
+    list_filter = ('category', 'unit', 'is_offer', 'status')
     search_fields = ('title', 'category__name')
     readonly_fields = ('id',)
     filter_horizontal = ('wishlist_users',)
@@ -78,6 +80,9 @@ class ProductAdmin(admin.ModelAdmin):
         ('Offer Details', {
             'classes': ('collapse',),
             'fields': ('is_offer', 'discount_percent', 'offer_start', 'offer_end')
+        }),
+        ('Approval', {
+            'fields': ('status', 'rejection_reason')
         }),
         ('Wishlist', {
             'fields': ('wishlist_users',)
@@ -114,6 +119,17 @@ class ProductAdmin(admin.ModelAdmin):
             if not obj.offer_end:
                 obj.offer_end = timezone.now() + timedelta(days=7)
         super().save_model(request, obj, form, change)
+
+    actions = ['approve_products', 'reject_products']
+
+    def approve_products(self, request, queryset):
+        queryset.update(status="approved", rejection_reason=None)
+    approve_products.short_description = "Approve selected products"
+
+    def reject_products(self, request, queryset):
+        queryset.update(status="rejected")
+    reject_products.short_description = "Reject selected products"
+
 
 @admin.register(DeliveryZone)
 class DeliveryZoneAdmin(admin.ModelAdmin):
@@ -152,3 +168,12 @@ class ContactMessageAdmin(admin.ModelAdmin):
     list_display = ('name', 'email', 'phone', 'subject', 'created_at')
     search_fields = ('name', 'email', 'phone', 'subject')
     list_filter = ('created_at',)
+
+
+from .models import Review
+
+@admin.register(Review)
+class ReviewAdmin(admin.ModelAdmin):
+    list_display = ("product", "customer", "rating", "created_at")
+    search_fields = ("product__title", "customer__email")
+    list_filter = ("rating", "created_at")
